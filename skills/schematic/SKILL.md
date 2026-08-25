@@ -70,7 +70,7 @@ Once you know enough about how to wire up a subcircuit, you can start bit by bit
 
 You can take some liberties based on the goal of the project, but they should definitely be mentioned at the end.
 
-For the most part, your job with this skill will be adding adding decoupling, wiring up MCUs to peripherals with legal pin selection for each function, adding oscillators, adding voltage conversion, and filtering if necessary. You need to look into reference materials and base your decisions on truths in them. Often you may choose a reference design in them, look at it as a picture, and follow it. But most importantly, you need to be thinking at a high level.
+For the most part, your job with this skill will be adding adding decoupling, wiring up MCUs to peripherals with legal pin selection for each function, adding oscillators, adding voltage conversion, and filtering if necessary, and other low level work like this. You need to look into reference materials and base your decisions on truths in them. Often you may choose a reference design in them, look at it as a picture, and follow it. But most importantly, you need to be thinking at a high level.
 
 For example, for decoupling, think about derating depending on conditions, DC voltage, etc., and think about upstream circuitry like voltage regulators and switches and how much capacitance they can take.
 
