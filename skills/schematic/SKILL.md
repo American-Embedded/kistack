@@ -14,7 +14,7 @@ This skill is not for selecting specific parts/part numbers, and you shouldn't d
 
 ### How to draw the schematic
 
-You can move anything around and label things. Generally, do almost everything with just labels instead of drawing lines.
+You can move anything around and label things. Generally, do most wiring with labels instead of drawing lines, with an important exception listed further below.
 
 You should color related nets so they stand out (e.g., SPI1 is one color, I2C2 is another, etc.).
 
@@ -42,7 +42,7 @@ For passives, use the small KiCad standard symbols.
 
 You will need to modify symbols of ICs to make passives look good.
 
-Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). Passives are an exception to the general "use labels instead of lines" rule.
+Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). This is the exception to the "use nets" rule, these will need to be wired with normal wires, not nets, for the most part. Passives are an exception to the general "use labels instead of lines" rule.
 
 Again, you need to iterate with pictures to make sure they look clean.
 
@@ -53,6 +53,8 @@ Do use some discretion about what passives should be directly connected to what 
 You can't start looking for parts during the schematic wire-up process. If a part was not already given to you and you were not asked to find it, don't look for it.
 
 If you need something like a voltage regulator, an oscillator, or small stuff like that, feel free to create a generic/abstact symbol for one and place it in the self-contained library in this directory (if it exists; otherwise, create one). Then use it. For more complex stuff, you might need to just leave a comprehensive but short note that a whole complex component is missing, continue with the schematic, and mention it briefly at the end as an important item.
+
+Again, if you think you are done, check the whole schematic, for falsely roated, misplaced, ugly text, overlapping stuff, illogical stuff, hard to read schematics, too much white space. and go back into fixing mode to fix them. You might need to loop around after actually finishing the schematic, at least 3-5 times on the whole schematic until you get it right, be sure it is at the end
 
 ### How to do research
 
