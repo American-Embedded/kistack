@@ -18,7 +18,7 @@ You can move anything around and label things. Generally, do almost everything w
 
 You should color related nets so they stand out (e.g., SPI1 is one color, I2C2 is another, etc.).
 
-Prefer single-sheet schematics that you can view all at once, even if it means bigger sheets. Break them down into more sheets and hierarchy when repetition is required, stuff starts getting complex, or if user supplied them like that to begin with.
+Prefer single-sheet schematics that you can view all at once, even if it means bigger sheets. Break them down into more sheets and hierarchy when repetition is required, stuff the schematic is requires bigger than A2 page size even when somewhat compacted, or if user supplied them like that to begin with.
 
 After understanding what subcircuits need to look like in general, put each subcircuit in a simple KiCad rectangle, colored and labeled with brief, bold text somewhere inside it. Prefer big-ish subcircuits that are not too defined. For example, most power supplies can usually be one subcircuit; ICs and their passives/oscillators/etc. can certainly be one subcircuit.
 
