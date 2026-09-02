@@ -1,3 +1,8 @@
+---
+name: kicad-bom
+description: Resolve and review exact PCB parts, packages, electrical ratings, availability, and manufacturer BOM fields for KiCad projects.
+---
+
 # Skill for part search, resolving BOM items
 
 Use either of the following MCPs for search:
