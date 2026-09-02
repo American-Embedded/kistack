@@ -1,8 +1,3 @@
----
-name: kicad-schematic
-description: Create, modify, and review KiCad schematics from selected parts, datasheets, reference designs, renders, and netlists.
----
-
 # SKILL ON HOW TO WIRE UP OR MODIFY A KICAD SCHEMATIC
 
 ## For Humans:

@@ -1,8 +1,3 @@
----
-name: kicad-pcb
-description: Review KiCad PCB layouts with DRC, layer renders, and 3D-model interference inspection.
----
-
 # Skill for PCB review
 
 Confirm with kicad-cli that DRC rules pass. 

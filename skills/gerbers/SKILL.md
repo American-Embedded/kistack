@@ -1,8 +1,3 @@
----
-name: kicad-gerbers
-description: Generate, render, and visually review KiCad Gerber layers as a fabrication-output inspection step.
----
-
 # This skill allows an LLM to review generated GERBER files for production of a PCB.
 
 If no generated GERBERs exist, please request for the user to generate them or generate them yourself for the purpose of review only, in a separate directory.
