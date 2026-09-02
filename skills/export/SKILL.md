@@ -1,3 +1,8 @@
+---
+name: kicad-export
+description: Generate deterministic KiCad ERC, DRC, fabrication, assembly, documentation, and 3D export outputs with kicad-cli.
+---
+
 Using kicad-cli, parse this documentation and use the necessary items to generate ERC/DRC reports, then proceed to create GERBERs, drill files, position files, and BOM files depending on the user's manufacturer. To make this deterministic, store your order of commands in a Python or bash script and modify it per-project.
 
 JLCPCB and NextPCB require a specific format for their position files:
