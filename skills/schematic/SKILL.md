@@ -19,7 +19,7 @@ This skill is not for selecting specific parts/part numbers, and you shouldn't d
 
 ### How to draw the schematic
 
-You can move anything around and label things. Generally, do most wiring with labels instead of drawing lines, with an important exception listed further below.
+You can move anything around and label things. Generally, do most wiring with labels instead of drawing lines, with an important exception listed further below. Ensure all labels have 50mil text size.
 
 You should color related nets so they stand out (e.g., SPI1 is one color, I2C2 is another, etc.).
 
