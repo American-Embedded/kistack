@@ -21,7 +21,7 @@ This skill is not for selecting specific parts/part numbers, and you shouldn't d
 
 You can move anything around and label things. Generally, do most wiring with labels instead of drawing lines, with an important exception listed further below. Ensure all labels have 50mil text size.
 
-You should color related nets so they stand out (e.g., SPI1 is one color, I2C2 is another, etc.).
+You should color related nets so they stand out (e.g., SPI1 is one color, I2C2 is another, power supply lines are divided by purpose, etc.). Critically, don't just lazily color all of the nets in a single block the same color unless this truly makes sense.
 
 Prefer single-sheet schematics that you can view all at once, even if it means bigger sheets. Break them down into more sheets and hierarchy when repetition is required, stuff the schematic is requires bigger than A2 page size even when somewhat compacted, or if user supplied them like that to begin with.
 
@@ -47,7 +47,7 @@ For passives, use the small KiCad standard symbols.
 
 You will need to modify symbols of ICs to make passives look good.
 
-Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). This is the exception to the "use nets" rule, these will need to be wired with normal wires, not nets, for the most part. Passives are an exception to the general "use labels instead of lines" rule.
+Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). This is the exception to the "use nets" rule, these will need to be wired with normal wires, not nets, for the most part. Passives are an exception to the general "use labels instead of lines" rule. Use power symbols as well instead of labels for VDD, GND, +3V3, etc. these sort of nets need to be obvious, more than just a label. If a power symbol does not exist with that name, just rename an existing one. Preference is the default GND symbol for ground, VDD for positive power supplies (outline arrow pointing up), and VSS for negative power supplies (filled arrow pointing down). Ground must ALWAYS point down. Positive power supplies must ALWAYS point up. Negative power supplies must ALWAYS point down. Always ensure that these do not overlap with text, including their wires! 
 
 Again, you need to iterate with pictures to make sure they look clean.
 
@@ -55,13 +55,15 @@ For new passives, mostly as placeholders, add footprints from the standard KiCad
 
 Do use some discretion about what passives should be directly connected to what for aesthetics.
 
+In general, groups of decoupling capacitors do not need a ground symbol per capacitor, or a VDD symbol per capacitor. Group them with comfortable breathing room between them, and by default physically connect them to the proper pins of the IC they are decoupling. If power supplies are sourced from the same regulator without any components in between, they can be bridged as well.
+
 You can't start looking for parts during the schematic wire-up process. If a part was not already given to you and you were not asked to find it, don't look for it.
 
 If you need something like a voltage regulator, an oscillator, or small stuff like that, feel free to create a generic/abstact symbol for one and place it in the self-contained library in this directory (if it exists; otherwise, create one). Then use it. For more complex stuff, you might need to just leave a comprehensive but short note that a whole complex component is missing, continue with the schematic, and mention it briefly at the end as an important item.
 
 Lastly the schematic should be somewhat compact, so if there is a lot of white space bring stuff closer together on the sheet so it's easier to read
 
-Again, if you think you are done, check the whole schematic, for falsely roated, misplaced, ugly text, overlapping stuff, illogical stuff, hard to read schematics, too much white space. and go back into fixing mode to fix them. You might need to loop around after actually finishing the schematic, at least 3-5 times on the whole schematic until you get it right, be sure it is at the end. 
+Again, if you think you are done, check the whole schematic, for falsely rotated, misplaced, ugly text, overlapping stuff, illogical stuff, hard to read schematics, too much white space. and go back into fixing mode to fix them. You might need to loop around after actually finishing the schematic, at least 3-5 times on the whole schematic until you get it right, be sure it is at the end. 
 
 ### How to do research
 
