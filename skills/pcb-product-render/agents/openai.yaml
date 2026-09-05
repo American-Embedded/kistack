@@ -1,4 +1,0 @@
-interface:
-  display_name: "PCB Product Render"
-  short_description: "Render KiCad PCBs as realistic Blender product images"
-  default_prompt: "Use $pcb-product-render to export this KiCad PCB and create realistic Blender product renders."
