@@ -49,6 +49,12 @@ You will need to modify symbols of ICs to make passives look good.
 
 Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). This is the exception to the "use nets" rule, these will need to be wired with normal wires, not nets, for the most part. Passives are an exception to the general "use labels instead of lines" rule. Use power symbols as well instead of labels for VDD, GND, +3V3, etc. these sort of nets need to be obvious, more than just a label. If a power symbol does not exist with that name, just rename an existing one. Preference is the default GND symbol for ground, VDD for positive power supplies (outline arrow pointing up), and VSS for negative power supplies (filled arrow pointing down). Ground must ALWAYS point down. Positive power supplies must ALWAYS point up. Negative power supplies must ALWAYS point down. Always ensure that these do not overlap with text, including their wires! 
 
+If using PWR_FLAG symbols, put them near the source of the power supply rather than randomly on the sheet.
+
+When adding test points, add them near the actual net in question.
+
+When adding values for symbols for passives, always use the unit. F, H, or R (not omega) for the passives please.
+
 Again, you need to iterate with pictures to make sure they look clean.
 
 For new passives, mostly as placeholders, add footprints from the standard KiCad library (unless otherwise instructed) of a roughly logical size based on the function.
