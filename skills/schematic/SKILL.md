@@ -43,7 +43,7 @@ You need to use a ton of image input; do not hesitate. Every time it's not clean
 
 You should also be plotting pictures of subcircuits and more specific things you need to clean up. I know for a fact that you can't take in the whole schematic all at once, so zoom in. Iterate. It has to look clean and functional and be correct.
 
-For passives, use the small KiCad standard symbols.
+For passives, use the small KiCad standard symbols. Use the Resistor_Small_US symbol, regular capacitor and inductor though.
 
 You will need to modify symbols of ICs to make passives look good.
 
