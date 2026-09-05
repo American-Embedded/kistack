@@ -55,6 +55,8 @@ When adding test points, add them near the actual net in question.
 
 When adding values for symbols for passives, always use the unit. F, H, or R (not omega) for the passives please.
 
+Labels for differential pairs should end in +,- or P,N to get picked up properly.
+
 Again, you need to iterate with pictures to make sure they look clean.
 
 For new passives, mostly as placeholders, add footprints from the standard KiCad library (unless otherwise instructed) of a roughly logical size based on the function.
