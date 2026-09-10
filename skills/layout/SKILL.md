@@ -5,6 +5,10 @@ description: Place components and route KiCad PCB layouts with footprint checks,
 
 #### The purpose of this skill is to help the agent do good layout. It helps the agent understand it's short commings and encourages it to complete layout steps that it typically dismisses. It has been written specifically for GPT-6-Astra and claude-fable-5.1 and specifically adresses those, but other agents can still work with it. For humans: as models become better and tools become better, a lot of this becomes unecessary bloat, make sure to keep it up to date.
 
+## Editing the active board in place
+
+For normal placement, routing, and cleanup work, first identify the project's canonical configured `.kicad_pcb` path—the board opened by the project or viewer—and keep using that exact path. Save each meaningful milestone to it so the active board and collaborators show progress. Keep backups and intermediate tool outputs in a separate backup or build directory. If a tool writes a staging or alternate file, validate it and promote the result back to the canonical path with a backup before continuing; do not silently switch the active filename. Use an alternate board only when the user explicitly requests an experiment or alternate design, and label it clearly. Coordinate ownership so only one agent or process writes the active board at a time; other agents may inspect it or prepare changes for integration.
+
 - Make sure that footprints are good for each part and try to get decent 3d models. if you can't find good 3d models, just create your own low fidelity 3d models. keep the projects library structure but prefer to put stuff on a self contained project library files.
 - When you have access to kicad IPC(-type) tools, or kiPy, always strongly prefer to use them.
 - in regards to autorouting: prefer not to use any autorouting software, do routing "manually", your self, unless instructed otherwise. If the boards becomes very complex, with low pitched components and ~thousands of nets, you can choose to use autorouting, tscircuit or freerouting for example. but avoid it if possible
