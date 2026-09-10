@@ -5,6 +5,10 @@ description: Review KiCad PCB layouts with DRC, layer renders, and 3D-model inte
 
 # Skill for PCB design and review
 
+## Editing the active board in place
+
+For normal placement, routing, and cleanup work, first identify the project's canonical configured `.kicad_pcb` path—the board opened by the project or viewer—and keep using that exact path. Save each meaningful milestone to it so the active board and collaborators show progress. Keep backups and intermediate tool outputs in a separate backup or build directory. If a tool writes a staging or alternate file, validate it and promote the result back to the canonical path with a backup before continuing; do not silently switch the active filename. Use an alternate board only when the user explicitly requests an experiment or alternate design, and label it clearly. Coordinate ownership so only one agent or process writes the active board at a time; other agents may inspect it or prepare changes for integration.
+
 ## Placement
 
 Place components like decoupling capacitors in orientations and locations that minimize loop area for ground and minimize trace length for inductance. If packages do not fit, consult the engineer to confirm that their recommended size per the schematic may need to change.
