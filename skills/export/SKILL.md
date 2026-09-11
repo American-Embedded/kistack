@@ -9,6 +9,21 @@ JLCPCB and NextPCB require a specific format for their position files:
 A .csv file with 5 columns: Designator, Mid X, Mid Y, Layer (T or B) and rotation
 KiCad does not permit this, so please use the Python script under scripts/convert_position.py to do this. If the user does not have Python installed please inform them before making changes to their computer, unless they have already specified to use a virtual environment or you see one at the root of the project where this skill is being called.
 
+**The position file needs rotation corrections before it is usable, and this is the one fault class nothing else in the project will catch.** `convert_position.py` reformats columns without touching the rotation values, so what it produces is raw KiCad output. A part rotated the wrong way passes ERC, DRC, schematic parity and every test the engineer has, because the error lives in the placement file rather than in the design. It shows up when the assembled board arrives and does not work.
+
+Do not correct rotations from a remembered table, and do not trust a footprint-keyed correction database to be sufficient. Those databases (`matthewlai/JLCKicadTools` publishes one, `Bouni/kicad-jlcpcb-tools` adopted it) are a reasonable starting point, but the offset actually belongs to the **LCSC part** — to how that part is drawn in the fabricator's own library — and not to the KiCad footprint. On one board reviewed this way, two parts each needed a different rotation from every other part sharing their footprint and land pattern: a TPS2553DBVR against an MCP4725 in the same SOT-23-6, and an APX803S supervisor against twenty-four BAV199 and AO3401A parts in the same SOT-23. A pattern keyed on the footprint name cannot express that. Note also that a prefix pattern like `^SOT-23` matches `SOT-23`, `SOT-23-5` and `SOT-23-6`, which on that board needed three different answers.
+
+So derive each correction from the fabricator's own placement preview, compared against the land pattern as actually placed on the board, and use **two** checks rather than one — neither is sufficient alone:
+
+- **Body shape.** Does the rendered body match the aspect of its land pattern? Read the pad coordinates: two vertical columns of pads means the body must be portrait, two horizontal rows means landscape. This catches 90-degree errors and is robust in dense areas. It is **completely blind to 180 degrees**, because a part rotated half a turn has identical body shape and its leads on identical sides.
+- **Pin 1 position.** Compare the fabricator's pin-1 marker against pad 1's quadrant computed from the board. This is the only check that catches a 180-degree error. It is unreliable in dense clusters, where a neighbouring part's marker can sit nearer the part than its own.
+
+Compute the part centre from **pad extents**, never the footprint bounding box: the bounding box includes silkscreen, which shifts the apparent quadrant and can make a 180-degree error read as a 90-degree one.
+
+Where a part needs an exception, record it as an **absolute** final rotation rather than an offset stacked on a family offset. Compounding corrections is where this arithmetic goes wrong.
+
+Finally, tell the engineer that a corrected file is a proposal until it has been seen in the fabricator's placement view, and keep the raw and corrected files until that is settled — then delete the one that lost, so nobody picks it up later.
+
 JLCPCB BOMs also require an LCSC part number. Ensure that the JLCPCB BOM preset is available and if not inform the user that this needs to be added. 
 
 Determine which PCB and scheamtic output commands you need to use (documentation is available under the references/ directory under this skill). For example, we often use this set of commands:
