@@ -45,7 +45,9 @@ You should also be plotting pictures of subcircuits and more specific things you
 
 For passives, use the small KiCad standard symbols. Use the Resistor_Small_US symbol, regular capacitor and inductor though.
 
-You will need to modify symbols of ICs to make passives look good.
+You will need to modify symbols of ICs to make passives look good. Do not make overly large symbols with too much spacing between pins.
+
+Place all passives per previous instructions, but place them in obvious banks or in proper locations before boxing items in. Place them alone, then put them in the box so we don’t wind up with a nasty pile of labeled unobvious passives.
 
 Wire them up logically next to the component where it makes sense (for example, pull-downs/ups and decoupling). This is the exception to the "use nets" rule, these will need to be wired with normal wires, not nets, for the most part. Passives are an exception to the general "use labels instead of lines" rule. Use power symbols as well instead of labels for VDD, GND, +3V3, etc. these sort of nets need to be obvious, more than just a label. If a power symbol does not exist with that name, just rename an existing one. Preference is the default GND symbol for ground, VDD for positive power supplies (outline arrow pointing up), and VSS for negative power supplies (filled arrow pointing down). Ground must ALWAYS point down. Positive power supplies must ALWAYS point up. Negative power supplies must ALWAYS point down. Always ensure that these do not overlap with text, including their wires! 
 
