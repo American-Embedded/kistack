@@ -59,6 +59,8 @@ def qfn():
             else:
                 ps.append(pad(k, -o, -1.95, 0.3, 0.7, n))
     ps.append(pad(17, 0, 0, 2.4, 2.4, "GND"))
+    # a paste-only aperture, as many QFN footprints have under the exposed pad
+    ps.append(f'(pad "" smd rect (at 0 0) (size 1 1) (layers "F.Paste") (uuid "{u()}"))')
     return ps
 
 

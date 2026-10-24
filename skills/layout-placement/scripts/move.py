@@ -147,10 +147,13 @@ def wrong(b, wants, refs):
             out.append(f"{ref} reads back at {got.position.x / 1e6:.4f},{got.position.y / 1e6:.4f},"
                        f"{got.orientation.degrees:.1f} {'B' if got.layer == BoardLayer.BL_B_Cu else 'F'}")
             continue
+        # an SMD pad's copper must not be on the other side only (paste-only
+        # apertures have no copper and are left alone)
+        other = BoardLayer.BL_F_Cu if side_of(got) == BoardLayer.BL_B_Cu else BoardLayer.BL_B_Cu
         for pd in got.definition.pads:
             lays = set(pd.padstack.layers)
-            if pd.pad_type == PadType.PT_SMD and lays and side_of(got) not in lays:
-                out.append(f"{ref} pad {pd.number} is not on the part's side")
+            if pd.pad_type == PadType.PT_SMD and other in lays and side_of(got) not in lays:
+                out.append(f"{ref} pad {pd.number} is on the other side")
                 break
     return out
 
@@ -207,7 +210,13 @@ def main():
     why = flip(b, flips, "flip " + " ".join(r for r, c in zip(refs, changed) if c.id.value in flips))
     if why:
         sys.exit(f"KiCad did not flip the parts ({why}); the commit was dropped, nothing changed")
-    why = update(b, changed, "move " + " ".join(refs))
+    try:
+        why = update(b, changed, "move " + " ".join(refs))
+    except BaseException as e:
+        if not flips:
+            raise
+        sys.exit(f"moving the parts failed ({type(e).__name__}: {e}); "
+                 + restore(b, flips, before, refs, count) + "; not saved")
     if why and not flips:
         sys.exit(f"KiCad did not apply the move as asked ({why}); the commit was dropped, nothing changed")
     if why:

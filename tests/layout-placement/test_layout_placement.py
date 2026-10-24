@@ -246,6 +246,8 @@ def main():
                             env={**os.environ, **S1, "PYTHONDONTWRITEBYTECODE": "1"})
         check("flipped part has its pads and courtyard on B", rr.stdout.strip() == "['B.Cu'] True",
               rr.stdout + rr.stderr)
+        r = run("move.py", board, "U1=110,100,0", env=S1)
+        check("part with a paste-only pad moves", r.returncode == 0, r.stderr)
         r = run("move.py", board, "C2=113.8,101,0,F", env=S1)
         c2 = pose_of(board, "C2", s1.url)
         check("flip back to F", r.returncode == 0 and c2 == ["113.8000", "101.0000", "0.0", "F.Cu"], r.stderr + str(c2))
