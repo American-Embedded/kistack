@@ -88,8 +88,29 @@ matching `skills/snapshots/v20.sha256`; v18 and v19 unchanged) changes:
 Ported here unchanged in substance on top of v19's port (so `--rf-track`
 stays required). On a synthetic chain the port prints what v20 prints with
 the same ties. The lab's tie regression (`v20_rf_tie_regression/`) and its
-fresh Opus run of v20 are theirs and not repeated here; the fresh run was
-pending when this copy was made.
+fresh Opus run of v20 are theirs and not repeated here.
+
+`TIE STRETCHED` is a heuristic: a tie gap longer than the part's own
+courtyard. It does not validate the vendor's electrical requirement.
+
+The lab's one fresh Opus 5.5 run of v20 (r21_v20_opus_a, reported in its
+`layout-placement-v20.README.md`, sha256
+`046d39b688baf1104c462ea0f4bfd4109bd1e557898a64c2b63148abc1b24bba`):
+
+- the targeted defect did not recur: C9 and C11 inline, C6 on a 0.170 mm
+  branch with its ground 0.332 mm from pin 32 (the v19 Opus run had 1.332 mm,
+  Nordic's reference 0.400 mm);
+- the run fails the lab's frozen evaluator overall: the RF group at 1.753,
+  only on the last link (L4 ends 1.32 mm short of the port, the spare length
+  put into the 50 ohm track), decoupling at 9.99 (C2 and C3 supply pads
+  turned away from their pins, the caps at pins 33, 36, 43, 45 and 47 far
+  from them; the lab calls this a separate regression in that run, not
+  explained by v20), and a soft pass fraction of 0.758 against its 0.85 gate;
+- it passes the hard gate, placement DRC with no errors and the v1.5
+  routability check (28 of 28 links, 35 of 35 escapes).
+
+It is one run. It shows the tie rule can work, not how often, and not that
+v20 places better overall than v19. No RF performance is claimed.
 
 ## Changes in this copy
 
