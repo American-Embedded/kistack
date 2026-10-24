@@ -91,10 +91,10 @@ def main():
                     help="parts taken off the board but not placed (place them afterwards, e.g. a ferrite between two nodes)")
     R.add_flags(ap)
     a = ap.parse_args()
-    rules = R.resolve(a.board, a, need=("track", "clear"))
     if a.thorough:
         a.step, a.radius, a.max_orders = 0.1, 2.5, 24
     b = geom.load(a.board)
+    rules = R.resolve(a.board, a, b, need=("track", "clear"))
     fps = geom.by_ref(b)
     ic = geom.need(fps, a.ic, a.board)
     group = []

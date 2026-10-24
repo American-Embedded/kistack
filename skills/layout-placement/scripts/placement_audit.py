@@ -23,8 +23,8 @@ usage: placement_audit.py board.kicad_pcb --ic REF [--ground GND] [--front 2.0]
        [--chain U1.31 L2 L3 L4 RF] [--tie C6:GND=U1.32 ...]
   --chain  antenna pin, series parts in schematic order, then the RF port net
   --tie    PART:NET=IC.PIN for a pad the schematic ties to one pin
-  --via --clear --track --edge  default to the board's rules (rules.py); the
-           script stops when the board does not give them
+  --via --clear --track --edge  default to the strictest rules the board
+           applies (rules.py); --rules-override allows looser flags
 """
 import argparse
 import math
@@ -70,9 +70,9 @@ def main():
     ap.add_argument("--chain", nargs="*")
     ap.add_argument("--tie", nargs="*", default=[])
     a = ap.parse_args()
-    r = R.resolve(a.board, a)
-    a.track, a.clear, a.via, a.edge = r.track, r.clear, r.via, r.edge
     b = geom.load(a.board)
+    r = R.resolve(a.board, a, b)
+    a.track, a.clear, a.via, a.edge = r.track, r.clear, r.via, r.edge
     fps = geom.by_ref(b)
     if a.ic not in fps:
         sys.exit(f"no footprint {a.ic} on {a.board}")

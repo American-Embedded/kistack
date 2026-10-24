@@ -83,9 +83,9 @@ def main():
     ap.add_argument("--movable", nargs="*", default=None,
                     help="with --conflicts, ignore only these parts' courtyards (default: all other parts)")
     a = ap.parse_args()
-    r = R.resolve(a.board, a, need=("track", "clear"))
-    a.track, a.clear = r.track, r.clear
     b = geom.load(a.board)
+    r = R.resolve(a.board, a, b, need=("track", "clear"))
+    a.track, a.clear = r.track, r.clear
     fps = geom.by_ref(b)
     ic, fp = geom.need(fps, a.ic, a.board), geom.need(fps, a.part, a.board)
     pin = [p for p in ic.pads if p.num == a.pin][0]

@@ -18,9 +18,11 @@ usage: route_check.py board.kicad_pcb --ic REF [--ground GND] [--no-escape NET .
                by default every IC net that reaches a small part, and GND,
                is skipped for escapes
   --track --clear --via --edge  the rules to route with; each defaults to the
-               board's own (rules.py: the Default net class and the edge
-               clearance in the .kicad_pro), and the script stops when the
-               board does not say. The grid is 0.05 mm.
+               strictest the board applies (rules.py: every net's class as
+               KiCad resolves it, the board minimums, clearance overrides).
+               Custom DRC rules are not evaluated: such a board needs all
+               four flags. A flag looser than the board needs
+               --rules-override. The grid is 0.05 mm.
 Scope: one IC per run (run it again for each IC), parts of four pads or fewer
 count as its local parts, local links use F.Cu only, and two copper layers
 are modelled. A failure in this check is a heuristic's failure, not proof
@@ -100,7 +102,7 @@ def main():
     ap.add_argument("--escape", nargs="*", default=[])
     R.add_flags(ap)
     a = ap.parse_args()
-    rules = R.resolve(a.board, a)
+    rules = R.resolve(a.board, a, geom.load(a.board))
     # A placement that routes in only one order is fragile. Route twice,
     # shortest links first and longest links first, and report what fails in
     # either order.

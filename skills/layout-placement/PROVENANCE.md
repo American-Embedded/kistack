@@ -42,11 +42,25 @@ safety and wording. They do not requalify the skill's placement results.
 Scripts:
 
 - `rules.py` (new): track width, clearance, via diameter and edge clearance
-  come from the flags, else from the board's `.kicad_pro` (Default net class
-  and `min_copper_edge_clearance`). A value found in neither stops the
-  script. v18 had 0.15 / 0.1 / 0.5 / 0.2 mm built in. On a board with those
-  rules, `route_check.py` and `placement_audit.py` print exactly what v18
-  printed (tested).
+  are the strictest the board applies: every net's effective class from
+  KiCad (`GetNetClassForNets`, so assignments, patterns and directives
+  count), its differential pair width for nets KiCad pairs, the board
+  minimums in the `.kicad_pro`, and pad and footprint clearance overrides.
+  Custom DRC rules (`.kicad_dru`) and a missing `.kicad_pro` need all four
+  values as flags. A flag looser than the board needs `--rules-override`,
+  and the output then says so. v18 had 0.15 / 0.1 / 0.5 / 0.2 mm built in.
+  On a board with those rules, `route_check.py` and `placement_audit.py`
+  print exactly what v18 printed (tested).
+- `sidecar.py` (new) and `move.py --save`: the board's companion metadata
+  is kept. bp.4 KiCad reads companion versions 1 and 2 and writes 2: native
+  v1 fields go into the board file, other per-item fields become v2
+  extension records, and other top-level keys or native fields for no item
+  are dropped. `--save` refuses before any change when a save would drop
+  part of the companion, refuses to save when the board or the companion
+  changed on disk meanwhile, keeps a copy, and after the save checks every
+  extension record and property, putting back a dropped record.
+- `move.py` refuses to move a footprint with custom properties: bp.4's
+  partial footprint update drops them (found by the tests).
 - `grid_router.py`: the rules are the `Witness`'s, from `rules.py`. The
   unused `via_site_gap`, which had the built-in rules, is gone.
 - `route_check.py`, `placement_audit.py`, `local_search.py`,
