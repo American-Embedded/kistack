@@ -66,7 +66,7 @@ part it serves. Typical jobs:
 | Bulk cap | near the pins it feeds, in line behind the small cap it backs, supply pad toward that cap so both share one supply track |
 | Switching regulator | the fast-switching loop the datasheet names as small as possible (for a buck, the input cap at the VIN and ground pins); switch node short; output cap at the regulated pin or where the datasheet puts it, with the inductor's output pad near it |
 | Crystal or resonator | both pads close to their two pins, at nearly equal distance; nothing routed between |
-| RF chain | series parts in schematic order from the RF pin to the port, the last pad on the port copper, each shunt at its node, ground as the vendor says |
+| RF chain (pi or T network) | series parts in schematic order on one axis from the RF pin to the port; leave a gap between series parts where a shunt joins, and put the shunt's node pad on the axis in that gap, the shunt turned across the axis with its ground pad away; the last shunt at the port node; ground as the vendor says |
 | Filter or RC on an input | the cap at the pin it filters; a series resistor beside the cap's signal pad, away from the IC |
 | Ferrite or link between supplies | only one the schematic has; between the pins or caps of the two domains |
 | Connector, button, LED | where the enclosure or user needs it |
@@ -139,7 +139,7 @@ than at a pin, and place them afterwards. The search ranks by distance and block
 escapes only, so it can put one group member across another's track. Run
 `route_check.py` on its result before keeping it.
 
-Three cases that go wrong often:
+Cases that go wrong often:
 
 - **Parts at neighbouring pins.** Two parts placed side by side, each in line
   with its pin, fit only if their courtyard widths add up to no more than
@@ -153,6 +153,23 @@ Three cases that go wrong often:
   turned across the row leaves its output pad, and the output cap behind it,
   far from the regulated pin. Compare both with `group_search.py` and keep
   the one whose output cap reaches its pin.
+- **An RF matching network (pi or T).** Put the series parts on one
+  straight line from the RF pin to the port, and give each shunt its own
+  place on that line. Leave a gap between the two series parts where the
+  shunt joins, and put its node pad in that gap, turned across the line with
+  its ground pad away. The track then runs straight through the node pad. A
+  shunt placed beside a series pad needs a short branch track to reach the
+  line. At RF (2.4 GHz, for example) that branch adds inductance and
+  capacitance the part values did not allow for, and how much depends on its
+  length and width. When a vendor ground tie holds a shunt off the line (a
+  ground that must return to one IC pin, for example), keep its branch as
+  short as the courtyards allow and say so. Nordic's nRF54L15 reference does
+  this for one shunt, with a 0.2 mm branch. The gaps make the chain longer
+  than its parts laid end to end, so count them before you set the IC's
+  distance from the port. Check every shunt with
+  `placement_audit.py --chain ... --rf-track <width>`, giving the width of
+  the track that will run through the chain. This checks geometry only; the
+  match itself still needs the vendor's tuning or a measurement.
 - **A two-pin part across two IC pins** (crystal, flying capacitor). Its two
   gaps should be nearly equal. Rotating it 180 degrees, mirroring which pad
   faces which pin, or sliding it along the IC side usually evens them. On a
@@ -202,11 +219,12 @@ After each group of parts, check before going on:
 - **Distances.** `scripts/placement_audit.py <board> --ic <IC>` measures from
   each IC pin to its parts, so a cap that is near another cap but far from its
   pin shows up. `--chain` checks an ordered chain (RF, filter) link by link,
-  `--tie` a vendor-mandated pad-to-pin connection. Fix, worst first: a pin
-  whose part is more than about two body lengths away, a part with its ground
-  pad facing the pin, a bulk cap far behind its small cap, a ground pad
-  without a via site, a two-pin part with uneven gaps, a long chain link, a
-  blocked pin front.
+  `--tie` a vendor-mandated pad-to-pin connection, and for each shunt on the
+  chain whether its node pad is inline or how long a branch it needs. Fix,
+  worst first: a pin whose part is more than about two body lengths away, a
+  part with its ground pad facing the pin, a bulk cap far behind its small
+  cap, a ground pad without a via site, a two-pin part with uneven gaps, a
+  long chain link, an RF shunt off the path, a blocked pin front.
 - **Routability.** `scripts/route_check.py <board> --ic <IC>` routes every
   local connection on the top layer in two orders, then every net that leaves
   the area to the board edge. The local connections must all exist on the

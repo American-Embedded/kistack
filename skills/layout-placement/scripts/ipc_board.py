@@ -210,6 +210,10 @@ def load(board_path, socket=None):
         lays = set(p.padstack.layers)
         on_f = through or BoardLayer.BL_F_Cu in lays
         on_b = through or BoardLayer.BL_B_Cu in lays
+        if not (on_f or on_b):
+            # paste- or mask-only apertures (KiCad library footprints have them): no copper
+            pad_poly[p.id.value] = (None, False, False, False)
+            continue
         pl = pf if on_f else pb
         g = _poly_from_polyline(pl.outline) if pl is not None else None
         pad_poly[p.id.value] = (g, on_f, on_b, through)

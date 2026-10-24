@@ -15,13 +15,18 @@ Prints, worst first:
   fronts   IC signal pins whose fan-out is blocked: no channel (one track
            wide) straight out or at 45 degrees is free of other nets' pads for
            --front mm
-  chain    with --chain: the gap of every link along an ordered RF chain
+  chain    with --chain: the gap of every link along an ordered RF chain, and for
+           every shunt on it whether its node pad lies on the series path (a
+           --rf-track wide track between the two series pads or the port it joins)
+           or how long a branch track it needs to reach that path
   ties     with --tie: the gap of each vendor-mandated pad-to-pin connection
 
 usage: placement_audit.py board.kicad_pcb --ic REF [--ground GND] [--front 2.0]
        [--via MM] [--clear MM] [--track MM] [--edge MM]
-       [--chain U1.31 L2 L3 L4 RF] [--tie C6:GND=U1.32 ...]
+       [--chain U1.31 L2 L3 L4 RF --rf-track MM] [--tie C6:GND=U1.32 ...]
   --chain  antenna pin, series parts in schematic order, then the RF port net
+  --rf-track  the width of the track that will run through the chain (its
+           50 ohm width on this board); --chain needs it, there is no default
   --tie    PART:NET=IC.PIN for a pad the schematic ties to one pin
   --via --clear --track --edge  default to the strictest rules the board
            applies (rules.py); --rules-override allows looser flags
@@ -36,7 +41,7 @@ import ipc_board as geom  # noqa: E402
 import rules as R  # noqa: E402
 from shapely.geometry import LineString, Point, box  # noqa: E402
 from shapely import affinity  # noqa: E402
-from shapely.ops import unary_union  # noqa: E402
+from shapely.ops import nearest_points, unary_union  # noqa: E402
 
 
 def via_gap(b, pad, via, clear, edge, search=1.2):
@@ -68,8 +73,12 @@ def main():
     R.add_flags(ap)
     ap.add_argument("--front", type=float, default=2.0)
     ap.add_argument("--chain", nargs="*")
+    ap.add_argument("--rf-track", type=float,
+                    help="width of the track through the RF chain, mm, for the inline check (needed with --chain)")
     ap.add_argument("--tie", nargs="*", default=[])
     a = ap.parse_args()
+    if a.chain and not (a.rf_track and math.isfinite(a.rf_track) and a.rf_track > 0):
+        sys.exit("--chain needs --rf-track MM, the width of the track that will run through the chain")
     b = geom.load(a.board)
     r = R.resolve(a.board, a, b)
     a.track, a.clear, a.via, a.edge = r.track, r.clear, r.via, r.edge
@@ -195,6 +204,7 @@ def main():
             if n in nodes:
                 node_copper.setdefault(n, []).append(("port", poly))
         print("  shunts (gap from the shunt's node pad to the node's series pads or port)")
+        print(f"  and whether the node pad sits on the path a {a.rf_track} mm track takes through that node")
         for fp in small:
             if fp.ref in a.chain:
                 continue
@@ -202,7 +212,25 @@ def main():
             if gnd in nets and nets & nodes:
                 q = [x for x in fp.pads if x.net in nodes][0]
                 d = min(q.poly.distance(g) for r_, g in node_copper.get(q.net, []))
-                print(f"    {fp.ref:5} on {q.net:12} {d:6.3f} mm")
+                ends = node_copper.get(q.net, [])
+                verdict = ""
+                if len(ends) >= 2:
+                    # the series path through this node: from one piece of series copper to the
+                    # other (a pad of each neighbouring series part, or a pad and the port)
+                    (r1, g1), (r2, g2) = max(((x, y) for i, x in enumerate(ends) for y in ends[i + 1:]),
+                                             key=lambda t: t[0][1].centroid.distance(t[1][1].centroid))
+                    p1, p2 = nearest_points(g1, g2)
+                    c1 = p1 if r1 == "port" else g1.centroid   # a track meets the port at its edge
+                    c2 = p2 if r2 == "port" else g2.centroid
+                    path = LineString([c1, c2]).buffer(a.rf_track / 2, cap_style=2)
+                    if q.poly.intersects(path):
+                        verdict = "inline (node pad on the series path)"
+                    elif d == 0:
+                        verdict = ("no branch, but the node pad only touches series copper off the path "
+                                   f"(its edge is {q.poly.distance(LineString([c1, c2])):.3f} mm from the path's centre line)")
+                    else:
+                        verdict = f"OFF THE PATH: a {q.poly.distance(path):.3f} mm branch (stub) to reach it"
+                print(f"    {fp.ref:5} on {q.net:12} {d:6.3f} mm  {verdict}")
 
     if a.tie:
         print("ties (vendor-mandated pad to pin)")

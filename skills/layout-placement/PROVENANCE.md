@@ -37,6 +37,33 @@ comparison or an untouched holdout:
 Nothing in this copy was measured again. The changes below are packaging,
 safety and wording. They do not requalify the skill's placement results.
 
+## v19 (RF matching network)
+
+The lab's v19 (`layout-placement-v19.tar.gz`, sha256
+`4c976fab5739344e76392c19c965506528c76dfaa29193b754efbef03c003dd2`, files
+matching `skills/snapshots/v19.sha256`; v18 unchanged) changes three files:
+
+- SKILL.md: the case "An RF matching network (pi or T)": series parts on one
+  line, each shunt's node pad in a gap on that line, a vendor-forced branch
+  kept short and stated, the gaps counted before the IC's distance to the
+  port is set, and the check is geometry only. The RF chain row of the table,
+  the Distances check and the fix list follow it.
+- `placement_audit.py --chain`: each shunt reads `inline`, `no branch, but
+  ... off the path`, or `OFF THE PATH: a X mm branch`, from pad polygons,
+  against a `--rf-track` wide path through its node.
+- `ipc_board.py`: pads with no copper layer (paste-only apertures) are
+  skipped.
+
+Ported here on top of the changes below, with one difference: `--rf-track`
+has no default (the lab's is 0.3 mm), and `--chain` without it is refused,
+because a width wider than the board's real track would read a shunt beside
+the path as inline. With `--rf-track 0.3` the port prints what v19 prints
+(tested on a synthetic chain). The lab's regression of the new check (the
+Nordic reference, a hand-corrected showcase that is not agent output, and
+three agent boards) is theirs, in the lab's `extra/handoff/v19_rf_regression/`,
+and was not run again here. The lab's fresh-agent verification of v19 was
+pending when this copy was made.
+
 ## Changes in this copy
 
 Scripts:
