@@ -154,6 +154,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--v18", help="the frozen v18 layout-placement folder, to compare outputs")
     ap.add_argument("--v19", help="the frozen v19 layout-placement folder, to compare its RF chain output")
+    ap.add_argument("--v20", help="the frozen v20 layout-placement folder, to compare its RF chain and tie output")
     ap.add_argument("--keep", action="store_true", help="keep the temporary folder")
     ap.add_argument("--skill", help="the layout-placement folder to test (default: this repository's), "
                                     "e.g. a packaged copy")
@@ -488,6 +489,22 @@ def main():
                                  env={**os.environ, **ER, "PYTHONDONTWRITEBYTECODE": "1"})
             check("placement_audit --chain prints what v19 printed", old.returncode == 0 and old.stdout == r.stdout,
                   f"v19 rc {old.returncode}: {old.stderr[-300:]}")
+        # a documented tie: shown on the shunt's line, flagged when stretched past the part
+        ties = ["--tie", "C20:RFN=L1.2", "C21:GND=U1.8"]
+        rt = run("placement_audit.py", rfb, *chain, "--rf-track", "0.3", *ties, env=ER)
+        check("a short documented tie is shown on the shunt and not flagged", rt.returncode == 0
+              and re.search(r"C20\s+on RFN.*inline.*documented tie C20:RFN=L1.2 [\d.]+ mm$", rt.stdout, re.M) is not None,
+              rt.stdout[-800:] + rt.stderr)
+        check("a stretched documented tie on a shunt is flagged",
+              re.search(r"C21\s+on RF.*documented tie C21:GND=U1.8 [\d.]+ mm TIE STRETCHED", rt.stdout) is not None
+              and re.search(r"C21:GND=U1.8\s+[\d.]+ mm  TIE STRETCHED", rt.stdout) is not None, rt.stdout[-800:])
+        check("without --tie no tie is reported", "documented tie" not in r.stdout and "TIE" not in r.stdout)
+        if a.v20:
+            old = subprocess.run([venv_python(), "-s", os.path.join(a.v20, "scripts", "placement_audit.py"), rfb, *chain,
+                                  "--rf-track", "0.3", *ties], capture_output=True, text=True,
+                                 env={**os.environ, **ER, "PYTHONDONTWRITEBYTECODE": "1"})
+            check("placement_audit --chain --tie prints what v20 printed", old.returncode == 0 and old.stdout == rt.stdout,
+                  f"v20 rc {old.returncode}: {old.stderr[-300:]}")
         sr.stop()
         servers.remove(sr)
 

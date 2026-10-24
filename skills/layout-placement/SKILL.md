@@ -161,12 +161,17 @@ Cases that go wrong often:
   shunt placed beside a series pad needs a short branch track to reach the
   line. At RF (2.4 GHz, for example) that branch adds inductance and
   capacitance the part values did not allow for, and how much depends on its
-  length and width. When a vendor ground tie holds a shunt off the line (a
-  ground that must return to one IC pin, for example), keep its branch as
-  short as the courtyards allow and say so. Nordic's nRF54L15 reference does
-  this for one shunt, with a 0.2 mm branch. The gaps make the chain longer
-  than its parts laid end to end, so count them before you set the IC's
-  distance from the port. Check every shunt with
+  length and width. A ground or return path that the vendor documents for
+  one shunt (a ground that must go only to one IC pin, or only to one layer)
+  takes precedence over an inline node pad. Place that shunt's ground pad at
+  its documented return first, then bring its node pad as close to the line
+  as the courtyards allow, and report the branch. Do not move the ground
+  away from its documented return to make the shunt inline. Nordic's
+  nRF54L15 schematic, for example, says one shunt's ground connects only to
+  pin 32 on the top layer; its reference keeps that ground next to pin 32
+  and accepts a 0.2 mm branch. Pass each documented tie to the audit with
+  `--tie`. The gaps make the chain longer than its parts laid end to end,
+  so count them before you set the IC's distance from the port. Check every shunt with
   `placement_audit.py --chain ... --rf-track <width>`, giving the width of
   the track that will run through the chain. This checks geometry only; the
   match itself still needs the vendor's tuning or a measurement.
