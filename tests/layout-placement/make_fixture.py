@@ -13,7 +13,8 @@ import json
 import os
 import uuid
 
-NETS = ["", "GND", "VDD", "RF", "XC1", "SIG1", "SIG2", "SIG3", "SIG4", "SIG5", "SIG6", "SIG7", "SIG8", "SIG9", "USB_P", "USB_N"]
+NETS = ["", "GND", "VDD", "RF", "XC1", "SIG1", "SIG2", "SIG3", "SIG4", "SIG5", "SIG6", "SIG7", "SIG8", "SIG9", "USB_P", "USB_N",
+        "ANT1", "RFN"]
 
 
 def u():
@@ -44,7 +45,11 @@ def fp(ref, val, x, y, rot, pads, cy):
             f'  (attr smd)\n  {cy}\n  ' + "\n  ".join(pads) + "\n)")
 
 
-def qfn(pad_clearance=None):
+def two_pin_v(n1, n2):
+    return [pad(1, 0, -0.48, 0.62, 0.56, n1), pad(2, 0, 0.48, 0.62, 0.56, n2)]
+
+
+def qfn(pad_clearance=None, rf=False):
     # 16 pins, 4 a side, 0.65 mm pitch, pads 0.3 x 0.7 at 1.95 mm from centre
     PAD_CLEARANCE.clear()
     if pad_clearance:
@@ -52,6 +57,8 @@ def qfn(pad_clearance=None):
         PAD_CLEARANCE[num] = mm
     nets = ["VDD", "SIG1", "SIG2", "XC1", "SIG3", "SIG4", "RF", "GND", "SIG5", "SIG6", "VDD", "SIG7",
             "SIG8", "SIG9", "USB_P", "USB_N"]
+    if rf:
+        nets[6] = "ANT1"
     ps, k = [], 0
     offs = [-0.975, -0.325, 0.325, 0.975]
     for side in range(4):
@@ -78,8 +85,15 @@ def two_pin(n1, n2):
 
 def board(rules):
     dup = [fp("R1", "10k", 116.0, 105.0, 0, two_pin("SIG2", "VDD"), crt(-0.91, -0.46, 0.91, 0.46))] if rules.dup else []
+    # an RF pi chain U1.7 (ANT1) - L1 - RFN - L2 - RF port: C20 sits inline in
+    # the gap between L1 and L2, C21 (on the port node) sits off the path
+    v = crt(-0.46, -0.91, 0.46, 0.91)
+    dup += [fp("L1", "2n2", 112.0, 104.0, 0, two_pin("ANT1", "RFN"), crt(-0.91, -0.46, 0.91, 0.46)),
+            fp("L2", "3n3", 115.0, 104.0, 0, two_pin("RFN", "RF"), crt(-0.91, -0.46, 0.91, 0.46)),
+            fp("C20", "1p0", 113.5, 104.48, 0, two_pin_v("RFN", "GND"), v),
+            fp("C21", "1p2", 117.8, 104.48, 0, two_pin_v("RF", "GND"), v)] if rules.rf else []
     fps = dup + [
-        fp("U1", "QFN16", 110, 100, 0, qfn(rules.pad_clearance), crt(-2.6, -2.6, 2.6, 2.6)),
+        fp("U1", "QFN16", 110, 100, 0, qfn(rules.pad_clearance, rules.rf), crt(-2.6, -2.6, 2.6, 2.6)),
         fp("C1", "100n", 106.2, 99.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
         fp("C2", "100n", 113.8, 101.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
         fp("C3", "12p", 106.2, 101.5, 0, two_pin("XC1", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
@@ -142,6 +156,7 @@ def main():
     ap.add_argument("--edge", type=float, default=0.2)
     ap.add_argument("--no-project", action="store_true")
     ap.add_argument("--dup", action="store_true", help="a second footprint with the reference R1")
+    ap.add_argument("--rf", action="store_true", help="an RF pi chain on U1 pin 7, one shunt inline, one off the path")
     ap.add_argument("--klass", action="append",
                     help="NAME:track:clearance:via:netpattern[:x:pairwidth:pairgap], a net class assigned by pattern")
     ap.add_argument("--min-clearance", type=float, help="the board's min_clearance (default: --clearance)")

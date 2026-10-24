@@ -153,6 +153,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--v18", help="the frozen v18 layout-placement folder, to compare outputs")
+    ap.add_argument("--v19", help="the frozen v19 layout-placement folder, to compare its RF chain output")
     ap.add_argument("--keep", action="store_true", help="keep the temporary folder")
     ap.add_argument("--skill", help="the layout-placement folder to test (default: this repository's), "
                                     "e.g. a packaged copy")
@@ -466,6 +467,29 @@ def main():
                       r.returncode == 0 and "are not evaluated" in r.stderr, r.stderr)
             sv.stop()
             servers.remove(sv)
+
+        # an RF pi chain: a shunt in the gap is inline, one beside the path is a branch
+        rfb = fixture(os.path.join(tmp, "rf"), "rf", "--rf")
+        sr = Server(cli, rfb, os.path.join(tmp, "s-rf"))
+        servers.append(sr)
+        ER = {"KICAD_API_SOCKET": sr.url}
+        chain = ["--ic", "U1", "--chain", "U1.7", "L1", "L2", "RF"]
+        r = run("placement_audit.py", rfb, *chain, env=ER)
+        check("--chain without --rf-track refused", r.returncode != 0 and "--chain needs --rf-track" in r.stderr, r.stderr)
+        r = run("placement_audit.py", rfb, *chain, "--rf-track", "0.3", env=ER)
+        check("an RF shunt in the gap reads inline", r.returncode == 0
+              and re.search(r"C20\s+on RFN\s+[\d.]+ mm  inline", r.stdout) is not None, r.stdout[-600:] + r.stderr)
+        check("an RF shunt beside the path reads as a branch",
+              re.search(r"C21\s+on RF\s+[\d.]+ mm  OFF THE PATH: a [\d.]+ mm branch", r.stdout) is not None,
+              r.stdout[-600:])
+        if a.v19:
+            old = subprocess.run([venv_python(), "-s", os.path.join(a.v19, "scripts", "placement_audit.py"), rfb, *chain,
+                                  "--rf-track", "0.3"], capture_output=True, text=True,
+                                 env={**os.environ, **ER, "PYTHONDONTWRITEBYTECODE": "1"})
+            check("placement_audit --chain prints what v19 printed", old.returncode == 0 and old.stdout == r.stdout,
+                  f"v19 rc {old.returncode}: {old.stderr[-300:]}")
+        sr.stop()
+        servers.remove(sr)
 
         sw = Server(cli, wide, os.path.join(tmp, "sw"))
         servers.append(sw)
