@@ -18,11 +18,13 @@ Prints, worst first:
   chain    with --chain: the gap of every link along an ordered RF chain
   ties     with --tie: the gap of each vendor-mandated pad-to-pin connection
 
-usage: placement_audit.py board.kicad_pcb --ic U1 [--ground GND] [--via 0.5]
-       [--clear 0.1] [--track 0.15] [--edge 0.2] [--front 2.0]
+usage: placement_audit.py board.kicad_pcb --ic REF [--ground GND] [--front 2.0]
+       [--via MM] [--clear MM] [--track MM] [--edge MM]
        [--chain U1.31 L2 L3 L4 RF] [--tie C6:GND=U1.32 ...]
   --chain  antenna pin, series parts in schematic order, then the RF port net
   --tie    PART:NET=IC.PIN for a pad the schematic ties to one pin
+  --via --clear --track --edge  default to the board's rules (rules.py); the
+           script stops when the board does not give them
 """
 import argparse
 import math
@@ -31,6 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipc_board as geom  # noqa: E402
+import rules as R  # noqa: E402
 from shapely.geometry import LineString, Point, box  # noqa: E402
 from shapely import affinity  # noqa: E402
 from shapely.ops import unary_union  # noqa: E402
@@ -62,16 +65,17 @@ def main():
     ap.add_argument("board")
     ap.add_argument("--ic", required=True)
     ap.add_argument("--ground", default="GND")
-    ap.add_argument("--via", type=float, default=0.5)
-    ap.add_argument("--clear", type=float, default=0.1)
-    ap.add_argument("--track", type=float, default=0.15)
-    ap.add_argument("--edge", type=float, default=0.2)
+    R.add_flags(ap)
     ap.add_argument("--front", type=float, default=2.0)
     ap.add_argument("--chain", nargs="*")
     ap.add_argument("--tie", nargs="*", default=[])
     a = ap.parse_args()
+    r = R.resolve(a.board, a)
+    a.track, a.clear, a.via, a.edge = r.track, r.clear, r.via, r.edge
     b = geom.load(a.board)
     fps = geom.by_ref(b)
+    if a.ic not in fps:
+        sys.exit(f"no footprint {a.ic} on {a.board}")
     ic = fps[a.ic]
     small = [fp for fp in b["footprints"] if len(fp.pads) <= 4 and fp.ref != a.ic]
     icpins = [p for p in ic.pads if p.net and p.kind == "smd"]

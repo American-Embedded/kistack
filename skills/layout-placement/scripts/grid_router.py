@@ -1,4 +1,4 @@
-"""Deterministic grid router used as routability witness (see eval/CRITERIA.md).
+"""Deterministic grid router used as a routability witness.
 
 Two copper layers (F.Cu = 0, B.Cu = 1), inner layers assumed to be ground
 planes.  Each route keeps clearance to copper of other nets on its layer;
@@ -12,18 +12,18 @@ import shapely
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
+# Track width, clearance, via diameter and edge clearance come from the
+# board (rules.py), never from defaults here. The grid and the via cost are
+# the router's own.
 GRID = 0.05
-TRACK_W = 0.15
-CLEAR = 0.10
-EDGE_CLEAR = 0.20
-VIA_D = 0.50
 VIA_COST = 12.0
 SEARCH_MARGIN = 0.01
 
 
 class Witness:
-    def __init__(self, board, rf_keepout_nets=()):
+    def __init__(self, board, rules):
         self.b = board
+        self.track, self.clear, self.via, self.edge = rules.track, rules.clear, rules.via, rules.edge
         self.outline = board["outline"]
         x0, y0, x1, y1 = self.outline.bounds
         self.x0, self.y0 = x0, y0
@@ -48,11 +48,11 @@ class Witness:
                 self.copper[0].append((net, poly))
             elif layer == "B.Cu":
                 self.copper[1].append((net, poly))
-        inner = self.outline.buffer(-(EDGE_CLEAR + TRACK_W / 2))
+        inner = self.outline.buffer(-(self.edge + self.track / 2))
         self.inside = shapely.contains_xy(inner, self.X, self.Y)
-        vinner = self.outline.buffer(-(EDGE_CLEAR + VIA_D / 2))
+        vinner = self.outline.buffer(-(self.edge + self.via / 2))
         self.via_inside = shapely.contains_xy(vinner, self.X, self.Y)
-        ring = inner.difference(self.outline.buffer(-(EDGE_CLEAR + TRACK_W / 2 + 2 * GRID)))
+        ring = inner.difference(self.outline.buffer(-(self.edge + self.track / 2 + 2 * GRID)))
         self.edge_ring = shapely.contains_xy(ring, self.X, self.Y)
         self.routes = []
 
@@ -84,9 +84,9 @@ class Witness:
 
     def route(self, net, start_polys, goal, allow_via=True, layers_start=(0,), max_len_mm=None):
         """goal: list of (layer, polygon) or the string 'edge'.  Returns path length or None."""
-        r = CLEAR + TRACK_W / 2
+        r = self.clear + self.track / 2
         free = [self.inside & ~self.blocked(net, l, r) for l in (0, 1)]
-        vfree = self.via_inside & ~self.blocked(net, 0, CLEAR + VIA_D / 2) & ~self.blocked(net, 1, CLEAR + VIA_D / 2)
+        vfree = self.via_inside & ~self.blocked(net, 0, self.clear + self.via / 2) & ~self.blocked(net, 1, self.clear + self.via / 2)
         start = []
         for l in layers_start:
             sm = np.zeros(self.X.shape, bool)
@@ -176,57 +176,25 @@ class Witness:
             return (self.x0 + n[2] * GRID, self.y0 + n[1] * GRID)
 
         def seg(pts):
-            return LineString(pts).buffer(TRACK_W / 2, 4) if len(pts) > 1 else Point(pts[0]).buffer(TRACK_W / 2, 4)
+            return LineString(pts).buffer(self.track / 2, 4) if len(pts) > 1 else Point(pts[0]).buffer(self.track / 2, 4)
         pieces, cur, pts = [], path[0][0], []
         for n in path:
             if n[0] != cur:
                 if pts:
                     pieces.append((cur, seg(pts)))
-                v = Point(xy(n)).buffer(VIA_D / 2, 12)
+                v = Point(xy(n)).buffer(self.via / 2, 12)
                 pieces += [(0, v), (1, v)]
                 cur, pts = n[0], [xy(n)]
             else:
                 pts.append(xy(n))
         if pts:
             pieces.append((cur, seg(pts)))
-        edge = self.outline.buffer(-EDGE_CLEAR + 0.0005)
+        edge = self.outline.buffer(-self.edge + 0.0005)
         for layer, g in pieces:
             others = [p for n2, p in self.copper[layer] if n2 != net]
-            if (others and unary_union(others).distance(g) < CLEAR - 0.0005) or not edge.contains(g):
+            if (others and unary_union(others).distance(g) < self.clear - 0.0005) or not edge.contains(g):
                 return False
         for layer, g in pieces:
             self.copper[layer].append((net, g))
         self.routes.append({"net": net, "cells": len(path)})
         return True
-
-
-def via_site_gap(board, pad, search=1.2, step=0.05, rf_avoid=None):
-    """Smallest gap from pad edge to a legal ground via (see CRITERIA)."""
-    r = VIA_D / 2
-    others = []
-    smd_all = []
-    for fp in board["footprints"]:
-        for p in fp.pads:
-            if p.net != pad.net:
-                others.append(p.poly)
-            if p.kind == "smd":
-                smd_all.append(p.poly)
-    for layer, net, poly in board["fixed_copper"]:
-        if net != pad.net:
-            others.append(poly)
-    ob = unary_union(others).buffer(CLEAR + r, 8) if others else None
-    smd = unary_union(smd_all).buffer(r, 8) if smd_all else None
-    allowed = board["outline"].buffer(-(EDGE_CLEAR + r))
-    if ob is not None:
-        allowed = allowed.difference(ob)
-    if smd is not None:
-        allowed = allowed.difference(smd)
-    if allowed.is_empty:
-        return None
-    region = pad.poly.buffer(search + r)
-    cand = allowed.intersection(region)
-    if cand.is_empty:
-        return None
-    # nearest legal via centre to the pad edge, minus the via radius
-    d = cand.distance(pad.poly) if not cand.intersects(pad.poly) else 0.0
-    return max(0.0, d - r) if d > 0 else 0.0

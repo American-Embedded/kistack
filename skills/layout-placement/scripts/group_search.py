@@ -31,6 +31,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipc_board as geom  # noqa: E402
+import rules as R  # noqa: E402
 from local_search import fanout_lanes, moved  # noqa: E402
 from shapely.ops import unary_union  # noqa: E402
 
@@ -88,12 +89,14 @@ def main():
     ap.add_argument("--top", type=int, default=3)
     ap.add_argument("--lift", nargs="*", default=[],
                     help="parts taken off the board but not placed (place them afterwards, e.g. a ferrite between two nodes)")
+    R.add_flags(ap)
     a = ap.parse_args()
+    rules = R.resolve(a.board, a, need=("track", "clear"))
     if a.thorough:
         a.step, a.radius, a.max_orders = 0.1, 2.5, 24
     b = geom.load(a.board)
     fps = geom.by_ref(b)
-    ic = fps[a.ic]
+    ic = geom.need(fps, a.ic, a.board)
     group = []
     for s in a.assign:
         ref, spec = s.split(":")
@@ -107,7 +110,7 @@ def main():
     fixed_occ = [o.courtyard for o in fixed if o.courtyard is not None]
     outline = b["outline"].buffer(1e-6)
     own = {q.net for r, _ in group for q in fps[r].pads}
-    lanes = fanout_lanes(ic, a.ground, own, a.front, 0.15, 0.1)
+    lanes = fanout_lanes(ic, a.ground, own, a.front, rules.track, rules.clear)
     fixed_pads = [(q.net, q.poly) for o in fixed if o.ref != ic.ref for q in o.pads]
     lane_free = {p.num: [k for k, ch in enumerate(opts) if not any(n != p.net and g.intersects(ch) for n, g in fixed_pads)]
                  for p, opts in lanes}

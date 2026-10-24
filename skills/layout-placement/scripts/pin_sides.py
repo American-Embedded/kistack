@@ -2,7 +2,7 @@
 """Print an IC's pins grouped by package side, in order along each side, with
 nets, for the IC's current rotation on the board.
 
-usage: pin_sides.py board.kicad_pcb U1
+usage: pin_sides.py board.kicad_pcb REF
 """
 import math
 import os
@@ -13,8 +13,10 @@ import ipc_board as geom  # noqa: E402
 
 
 def main():
+    if len(sys.argv) != 3:
+        sys.exit("usage: pin_sides.py board.kicad_pcb REF")
     b = geom.load(sys.argv[1])
-    fp = geom.by_ref(b)[sys.argv[2]]
+    fp = geom.need(geom.by_ref(b), sys.argv[2], sys.argv[1])
     cx, cy = fp.x, fp.y
     big = max(fp.pads, key=lambda p: p.poly.area)
     sides = {"left (-x)": [], "right (+x)": [], "top (-y)": [], "bottom (+y)": [], "centre": []}

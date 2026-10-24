@@ -8,7 +8,8 @@ and reports what fails when routing shortest-first or longest-first.
 A failure means the placement probably blocks that connection; a success is
 feasibility under simple rules, not a finished route.
 
-usage: route_check.py board.kicad_pcb --ic U1 [--ground GND] [--no-escape NET ...] [--escape NET ...]
+usage: route_check.py board.kicad_pcb --ic REF [--ground GND] [--no-escape NET ...] [--escape NET ...]
+       [--track MM --clear MM --via MM --edge MM]
   --escape     nets that leave the board even though they also reach a small
                part (reset through its resistor, crystal pins that are GPIOs,
                the supply feed); they are routed to the edge from any of
@@ -16,8 +17,14 @@ usage: route_check.py board.kicad_pcb --ic U1 [--ground GND] [--no-escape NET ..
   --no-escape  nets that do not leave the board (supplies, internal nodes);
                by default every IC net that reaches a small part, and GND,
                is skipped for escapes
-Rules (edit grid_router.py to change): 0.15 mm track, 0.1 mm clearance,
-0.2 mm copper to edge, 0.5 mm via, 0.05 mm grid.
+  --track --clear --via --edge  the rules to route with; each defaults to the
+               board's own (rules.py: the Default net class and the edge
+               clearance in the .kicad_pro), and the script stops when the
+               board does not say. The grid is 0.05 mm.
+Scope: one IC per run (run it again for each IC), parts of four pads or fewer
+count as its local parts, local links use F.Cu only, and two copper layers
+are modelled. A failure in this check is a heuristic's failure, not proof
+that the board cannot be routed.
 """
 import argparse
 import os
@@ -26,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipc_board as geom  # noqa: E402
 import grid_router as W  # noqa: E402
+import rules as R  # noqa: E402
 
 
 def plan(b, ic, gnd):
@@ -54,9 +62,12 @@ def plan(b, ic, gnd):
     return links, local_nets
 
 
-def run(path, ic_ref, gnd, no_escape, order_links=None, order_esc=None, extra=()):
+def run(path, rules, ic_ref, gnd, no_escape, order_links=None, order_esc=None, extra=()):
     b = geom.load(path)
-    ic = geom.by_ref(b)[ic_ref]
+    fps = geom.by_ref(b)
+    if ic_ref not in fps:
+        sys.exit(f"no footprint {ic_ref} on {path}")
+    ic = fps[ic_ref]
     links, local = plan(b, ic, gnd)
     skip = (set(no_escape) | local | {gnd}) - set(extra)
     esc = []
@@ -66,7 +77,7 @@ def run(path, ic_ref, gnd, no_escape, order_links=None, order_esc=None, extra=()
     esc += [n for n in extra if n not in esc]
     li = order_links or list(range(len(links)))
     en = order_esc or esc
-    w = W.Witness(b)
+    w = W.Witness(b, rules)
     lf, ef = [], []
     for i in li:
         d, name, net, q, p = links[i]
@@ -87,13 +98,15 @@ def main():
     ap.add_argument("--ground", default="GND")
     ap.add_argument("--no-escape", nargs="*", default=[])
     ap.add_argument("--escape", nargs="*", default=[])
+    R.add_flags(ap)
     a = ap.parse_args()
+    rules = R.resolve(a.board, a)
     # A placement that routes in only one order is fragile. Route twice,
     # shortest links first and longest links first, and report what fails in
     # either order.
-    links, esc, lf1, ef1 = run(a.board, a.ic, a.ground, a.no_escape, extra=a.escape)
+    links, esc, lf1, ef1 = run(a.board, rules, a.ic, a.ground, a.no_escape, extra=a.escape)
     rev = list(range(len(links)))[::-1]
-    _, _, lf2, ef2 = run(a.board, a.ic, a.ground, a.no_escape, rev, esc[::-1], extra=a.escape)
+    _, _, lf2, ef2 = run(a.board, rules, a.ic, a.ground, a.no_escape, rev, esc[::-1], extra=a.escape)
     lf = sorted(set(lf1) | set(lf2))
     ef = [n for n in esc if n in set(ef1) | set(ef2)]
     print(f"local links routed in both orders: {len(links) - len(lf)}/{len(links)}")
@@ -108,6 +121,11 @@ def main():
     for n in ef:
         which = "both orders" if n in ef1 and n in ef2 else ("pin order" if n in ef1 else "reverse order")
         print(f"  FAILED {n}  ({which})")
+    both = [n for n in ef if n in ef1 and n in ef2]
+    if both:
+        print("escapes that failed in both orders: unresolved by this check, which is not proof the board cannot "
+              "route them. Try a physical alternative (another edge, a via sooner, a rotation, moving the part "
+              "in the way) and confirm the rules above are the board's before calling the placement blocked.")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 ---
 name: layout-placement
-description: Place components on a KiCad board so that each part sits where its circuit needs it, placement DRC passes, and the board can still be routed. Covers reading the schematic for what each part does, fixing the immovable parts, orienting ICs, placing decoupling, power, clock, RF and filter parts, and keeping pads reachable. Use for placement work on any board; not for routing or schematic design.
+description: Place components on a KiCad board so each part sits where its circuit needs it, placement DRC passes, and every pad stays reachable, with IPC scripts that move parts and measure distances and routability. Covers reading the circuit, fixed parts, IC orientation, and decoupling, regulator, clock, RF and filter parts. Use for component placement; not for routing or schematic design.
 ---
 
 # PCB component placement
@@ -12,6 +12,12 @@ carries fast-changing current a short, direct path, keeps a channel open
 for every other connection, and passes placement DRC (courtyards, clearance,
 board edge) with zero errors.
 
+This skill is experimental. It was developed against a few small Nordic
+QFN benchmark boards and has not been qualified for electrical, RF or
+manufacturing sign-off. Its scripts check placement geometry under simple
+rules. Where their results and the datasheet or the vendor's reference
+layout disagree, follow the datasheet and the reference.
+
 ## Why parts go where they go
 
 Work from these reasons. The rules in the later sections follow from them.
@@ -21,9 +27,11 @@ When a rule and a reason disagree on a particular board, follow the reason.
   conductor and comes back on another, usually ground. The area of that loop
   sets how much it radiates and how much noise it picks up, and its length
   sets its inductance. A decoupling capacitor helps only if the loop from its
-  pads to the IC's supply and ground pins is small. A switching regulator's
-  input capacitor, switch and inductor form a loop whose current changes in
-  nanoseconds. Short loops matter most where current changes fastest.
+  pads to the IC's supply and ground pins is small. In a switching regulator
+  one loop carries current that switches in nanoseconds. In a buck it is the
+  input capacitor, the switches and their ground return; in a boost it is the
+  switch, the rectifier and the output capacitor. The datasheet's layout
+  section names it. Short loops matter most where current changes fastest.
 - **Some connections tolerate distance and some do not.** A slow GPIO can run
   across the board. A decoupler, a switch node, a crystal pin, an RF node or
   a filter capacitor on a sensitive input cannot. Rank every connection by how
@@ -54,28 +62,30 @@ part it serves. Typical jobs:
 
 | Job | What it needs from placement |
 |---|---|
-| Decoupling cap | at its supply pin, supply pad toward the pin, ground pad with a via site; the smallest value closest |
+| Decoupling cap | at its supply pin, supply pad toward the pin, ground returned the way the vendor shows; usually the smallest value closest, unless the vendor's layout orders them otherwise |
 | Bulk cap | near the pins it feeds, in line behind the small cap it backs, supply pad toward that cap so both share one supply track |
-| Switching regulator | input cap, switch and inductor in one tight loop; switch node short; output cap at the regulated pin, with the inductor's output pad near it |
+| Switching regulator | the fast-switching loop the datasheet names as small as possible (for a buck, the input cap at the VIN and ground pins); switch node short; output cap at the regulated pin or where the datasheet puts it, with the inductor's output pad near it |
 | Crystal or resonator | both pads close to their two pins, at nearly equal distance; nothing routed between |
 | RF chain | series parts in schematic order from the RF pin to the port, the last pad on the port copper, each shunt at its node, ground as the vendor says |
 | Filter or RC on an input | the cap at the pin it filters; a series resistor beside the cap's signal pad, away from the IC |
-| Ferrite or link between supplies | between the pins or caps of the two domains |
+| Ferrite or link between supplies | only one the schematic has; between the pins or caps of the two domains |
 | Connector, button, LED | where the enclosure or user needs it |
-| Pull-up, series termination | termination at the driving pin; pull-ups anywhere on the net |
+| Pull-up, series termination | termination at the driving pin; a pull-up on a slow or static net anywhere on it, unless the datasheet says where |
 
-Use the parts the schematic gives and add none. When one supply net reaches
-several IC pins and there are enough caps, put one at each pin, including
-pins on other sides of the package. When there are fewer caps than pins,
+Use the parts the schematic gives and add none. Do not add a ferrite, a
+cap or a via pattern that neither the schematic nor the vendor's reference
+has, and keep the ground and layer arrangement the vendor shows. When one
+supply net reaches several IC pins and there are enough caps, put one at
+each pin, including pins on other sides of the package. When there are fewer caps than pins,
 neighbouring pins of the same supply share, and the vendor's grouping says
 which. Read the datasheet and any layout notes for constraints such as a
 ground pad tied to one IC pin, a via to one layer only, or a length limit, and
 treat them as requirements. When the documents leave a choice open, make it,
 say that it is your inference, and keep going.
 
-Then find where the pins are on the package: `scripts/pin_sides.py` prints
-each pin's side and position. The layout of the schematic sheet says nothing
-about the board.
+Then find where the pins are on the package. `scripts/run.sh pin_sides.py
+<board> <IC>` prints each pin's side and position. The layout of the
+schematic sheet says nothing about the board.
 
 ## 2. Fix the immovable, then orient the ICs
 
@@ -95,8 +105,8 @@ IC. Stretching the links between matching parts adds inductance the
 matching values did not allow for, and it pulls each shunt and its tied
 ground away from the IC pin. If the IC cannot move, keep the matching parts
 together and let the length go into the 50 ohm track at the port, then say
-so. Leave room on every side for that side's parts and
-for the tracks leaving the other pins.
+so. Leave room on every side for that side's parts and for the tracks
+leaving the other pins.
 
 ## 3. Place in order of how little distance each connection tolerates
 
@@ -117,58 +127,68 @@ large part. More generally, when a part that needs to be close (decoupler,
 filter cap, RF part, output cap) cannot reach its pin, find what holds the
 space with `scripts/local_search.py --conflicts` and move the part that
 tolerates distance (crystal, bulk cap, series resistor). Do not push the
-close part out to make room for one that could sit further away. When several parts compete for the pins of one region (caps,
-inductor and ferrite around a regulator; two caps at neighbouring pins),
-place them together as a group. `scripts/group_search.py` tries the orders
-and positions. Give each connection a weight for the distance it
-tolerates (`L1:46@1,45@3` means pad to pin 46 must be short and to pin 45 may
-be three times longer). Lift parts that sit between two nodes rather than at a
-pin and place them afterwards. The search ranks by distance and blocked
+close part out to make room for one that could sit further away.
+
+When several parts compete for the pins of one region (caps, inductor and
+ferrite around a regulator, or two caps at neighbouring pins), place them
+together as a group. `scripts/group_search.py` tries the orders and
+positions. Give each connection a weight for the distance it tolerates.
+`L1:46@1,45@3` means the pad to pin 46 must be short and the pad to pin 45
+may be three times longer. Lift parts that sit between two nodes rather
+than at a pin, and place them afterwards. The search ranks by distance and blocked
 escapes only, so it can put one group member across another's track. Run
 `route_check.py` on its result before keeping it.
 
-Two cases that go wrong often:
+Three cases that go wrong often:
 
 - **Parts at neighbouring pins.** Two parts placed side by side, each in line
   with its pin, fit only if their courtyard widths add up to no more than
   twice the pin pitch. Two 0201s (0.46 mm courtyards) at 0.4 mm pitch do not.
   Plan the pair together. Offset them sideways, move one outward by its
   courtyard length, or swap which pin gets the nearer spot.
-- **A regulator whose switch pin and regulated pin are neighbours.** The
-  inductor joins both pins, and the output cap belongs at the regulated pin.
-  An inductor laid parallel to the pin row keeps both of its pads near their
-  pins; one turned across the row leaves its output pad, and the output cap
-  behind it, far from the regulated pin. Compare both with
-  `group_search.py` and keep the one whose output cap reaches its pin.
+- **A regulator whose switch pin and regulated pin are neighbours.** This
+  is common in ICs with an integrated DC/DC converter. The inductor joins
+  both pins, and the output cap belongs at the regulated pin. An inductor
+  laid parallel to the pin row keeps both of its pads near their pins. One
+  turned across the row leaves its output pad, and the output cap behind it,
+  far from the regulated pin. Compare both with `group_search.py` and keep
+  the one whose output cap reaches its pin.
 - **A two-pin part across two IC pins** (crystal, flying capacitor). Its two
   gaps should be nearly equal. Rotating it 180 degrees, mirroring which pad
   faces which pin, or sliding it along the IC side usually evens them. On a
   four-pad crystal the two signal pads sit on opposite corners, so each of
   the four rotations puts a different pair of pads toward the IC and gives
   different gaps. Measure both gaps with `placement_audit.py` at all four
-  rotations before keeping one. When balance and distance conflict, take
-  balance. Each pin's track adds stray capacitance to its load capacitor, so
-  two equal tracks a little longer keep the loads matched, and a short track
-  with a long one does not. Tracks
-  from a part further out than the row of caps need a corridor through that
-  row; leave the gap when you place the caps.
+  rotations before keeping one. Each pin's track adds stray capacitance to
+  its load capacitor, so two equal tracks keep the loads matched and a short
+  track with a long one does not. When the balanced choice costs only a
+  little length, prefer it. Do not trade much length for balance, because
+  every extra millimetre on both pins adds capacitance and pickup. Follow
+  the IC vendor's crystal layout where it gives one.
+
+Tracks from a part further out than the row of caps need a corridor through
+that row. Leave the gap when you place the caps.
 
 ## 4. Keep every pad reachable
 
 For every part you place:
 
-- leave a channel one track wide plus two clearances (0.35 mm for 0.15 mm
-  tracks with 0.1 mm clearance) wherever a signal must pass between parts
+- leave a channel one track wide plus two clearances, from the board's
+  rules (0.35 mm for 0.15 mm tracks with 0.1 mm clearance), wherever a
+  signal must pass between parts
 - keep the area in front of a fine-pitch row free for its escaping tracks
   until they can bend, about 2 mm at 0.4 mm pitch. Do not park a part in front
   of a pin it does not connect to unless that pin's track can leave at 45
   degrees.
-- give every ground pad of a decoupler, crystal or shunt a via site next to it
-  (via diameter plus clearance to other-net copper)
+- where a ground pad of a decoupler, crystal or shunt returns through a via
+  to a ground plane, give it a via site next to it (via diameter plus
+  clearance to other-net copper). Where the vendor ties that pad to a
+  particular pin, layer or copper instead, follow the vendor and add no via
+  the reference does not have
 - keep courtyards from overlapping. Touching passes DRC; leave a small gap
   where a track or via must go between.
-- place a part in line with its pin (radial) rather than across the row, because a
-  radial part leaves both neighbours' straight exits open
+- place a part in line with its pin (radial) rather than across the row,
+  because a radial part leaves both neighbours' straight exits open
 
 Compute positions from pad coordinates, not from a picture. An estimate by
 eye is often off by 0.3 mm, which is half the length of an 0201.
@@ -197,6 +217,11 @@ After each group of parts, check before going on:
   shifting it toward its own pin or turning it frees the lane. Escapes are
   different. An escape that fails in one order only can still bend, change
   layer or leave by another edge, so say which order works and go on.
+  An escape that fails in both orders is unresolved, not impossible. The
+  check is a simple grid router. Try a physical alternative (another edge,
+  an earlier via, another rotation, moving the part in its way), confirm the
+  rules it printed are the board's, and report the escape as unresolved if
+  none of that works.
 - **Look.** Render the board and check for chains out of order and parts
   that block pins.
 
@@ -214,16 +239,54 @@ each. Keep the one with the shortest worst gap that still routes. If a side
 cannot hold its parts, move or rotate the IC. Report what you could not
 satisfy and why.
 
+## What the checks assume
+
+- **Rules.** The scripts take track width, clearance and via diameter from
+  the Default net class in the board's `.kicad_pro`, and the copper-to-edge
+  clearance from its board rules. Each script prints the rules it used and
+  where each came from. When the project file does not give one, the script
+  stops; pass `--track --clear --via --edge` with the values the board is
+  made to. Nets in other net classes (wide power tracks, RF clearances) need
+  their values passed for that run.
+- **Scope.** One IC per run: run a check again for each IC. Parts with four
+  pads or fewer count as the IC's local parts. Local links are routed on
+  F.Cu only, and two copper layers are modelled.
+- A result from these checks is a heuristic's answer under these
+  assumptions. A pass is not a finished route, and a failure is not proof
+  that the board cannot be routed.
+
 ## Working with the board
 
 Read and change the board through KiCad's IPC API, never by editing the
 `.kicad_pcb` text. In Backplane, open the board once with the `kicad_ipc`
-tool (`kiapi.common.commands.OpenDocument`); the scripts here then talk to
-that KiCad server with kicad-python:
+tool (`kiapi.common.commands.OpenDocument`); the scripts then talk to that
+KiCad server with kicad-python.
 
+Run every script through `scripts/run.sh`, for example
+`scripts/run.sh pin_sides.py <board> U1`. The first run makes the scripts'
+own Python environment from `requirements.txt` (exact versions, Python 3.12
+or newer) under `~/.cache/kistack/layout-placement`, with uv when it is
+installed, else with python3 and pip. It installs nothing elsewhere.
+
+- Always pass the project's configured `.kicad_pcb`, the one Backplane's
+  viewer shows. A script refuses a board that the nearest `.backplane.json`
+  does not name. Set `LAYOUT_PLACEMENT_ALTERNATE=1` only when the user asked
+  for an alternate board.
+- A script uses the one KiCad server that has the board open. It stops when
+  none has it, when several have it, or when `KICAD_API_SOCKET` names a
+  server with another board. It never picks a board by itself.
 - `scripts/move.py <board> REF=x,y,rot[,F|B] ... [--save]` moves parts as one
   commit. Without `--save` the change lives in the server only, and the
   checks read the server, so you can try a move, check it and move again.
+- `move.py` checks every argument before it asks KiCad anything and takes
+  each part once per call. If KiCad does not place a part as asked, it drops
+  the commit. If the footprint count, the net of any fixed copper, or a
+  moved part's position reads back wrong after the commit, it puts the parts
+  back and does not save. It exits non-zero whenever the board was not
+  changed as asked.
+- `--save` writes the board KiCad has open, which the script has checked is
+  the configured one. KiCad rewrites the board's `.backplane.json`
+  companion file on every save, as Backplane's own saves do.
 - `scripts/ipc_board.py` loads pads, courtyards, outline and fixed copper for
   your own checks.
 - kicad-cli DRC reads the file, so save first.
@@ -232,8 +295,6 @@ that KiCad server with kicad-python:
   it again with `OpenDocument`. Only if that keeps happening, run your own
   server, `kicad-cli api-server --socket <dir>/api.sock <board>`, and set
   `KICAD_API_SOCKET=ipc://<dir>/api.sock`. Never let two servers save the
-  same board.
-- `move.py` takes each part once per call, and stops without saving if the
-  footprint count or the net of any fixed copper changes.
+  same board, and let one agent at a time move parts on it.
 
 Run each script in the foreground and wait for its result.

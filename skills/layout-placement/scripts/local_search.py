@@ -29,6 +29,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipc_board as geom  # noqa: E402
+import rules as R  # noqa: E402
 from shapely import affinity  # noqa: E402
 from shapely.geometry import LineString  # noqa: E402
 from shapely.ops import unary_union  # noqa: E402
@@ -76,16 +77,17 @@ def main():
     ap.add_argument("--radius", type=float, default=2.0)
     ap.add_argument("--step", type=float, default=0.05)
     ap.add_argument("--front", type=float, default=2.0)
-    ap.add_argument("--track", type=float, default=0.15)
-    ap.add_argument("--clear", type=float, default=0.1)
+    R.add_flags(ap)
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--conflicts", action="store_true")
     ap.add_argument("--movable", nargs="*", default=None,
                     help="with --conflicts, ignore only these parts' courtyards (default: all other parts)")
     a = ap.parse_args()
+    r = R.resolve(a.board, a, need=("track", "clear"))
+    a.track, a.clear = r.track, r.clear
     b = geom.load(a.board)
     fps = geom.by_ref(b)
-    ic, fp = fps[a.ic], fps[a.part]
+    ic, fp = geom.need(fps, a.ic, a.board), geom.need(fps, a.part, a.board)
     pin = [p for p in ic.pads if p.num == a.pin][0]
     others = [o for o in b["footprints"] if o.ref != fp.ref]
     occ = unary_union([o.courtyard for o in others if o.courtyard is not None])

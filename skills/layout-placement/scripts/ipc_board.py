@@ -5,15 +5,18 @@ kicad_ipc tool with kiapi.common.commands.OpenDocument first).  Positions are
 millimetres, y down, as in KiCad.
 
     from ipc_board import load
-    b = load("/path/board.kicad_pcb")          # finds the server holding that board
+    b = load("/path/board.kicad_pcb")          # finds the one server holding that board
                                                 # (or set KICAD_API_SOCKET=ipc://...)
-    b = load(socket="ipc:///run/.../api.sock")  # or name the socket
+
+The board must be the project's configured one (see _canonical), and
+exactly one server may have it open; anything else stops with an error.
 
 Returns a dict with "footprints" (ref, value, x, y, rot, layer, courtyard,
 pads), "outline" (shapely Polygon), "fixed_copper" [(layer, net, polygon)]
 and "board" (the kipy Board, for edits).
 """
 import glob
+import json
 import math
 import os
 import sys
@@ -86,29 +89,104 @@ def _polys(segs):
     return list(polygonize(unary_union(lines))) if lines else []
 
 
+def _open_board(k):
+    d = k.get_board().document
+    return os.path.realpath(os.path.join(d.project.path, d.board_filename))
+
+
+def _canonical(target):
+    """Refuse a board that is not the project's configured one.
+
+    The nearest .backplane.json above the board names the project's board
+    (its "pcb", else the board beside its "project"). A different board is
+    refused unless LAYOUT_PLACEMENT_ALTERNATE=1 says the user asked for an
+    alternate or experimental copy. Without a .backplane.json there is
+    nothing to check against."""
+    d = os.path.dirname(target)
+    while True:
+        cfg = os.path.join(d, ".backplane.json")
+        if os.path.isfile(cfg):
+            break
+        up = os.path.dirname(d)
+        if up == d:
+            return
+        d = up
+    try:
+        with open(cfg) as f:
+            j = json.load(f)
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"{cfg} is unreadable ({e}); fix it before editing the board")
+    want = None
+    if isinstance(j.get("pcb"), str):
+        want = os.path.realpath(os.path.join(d, j["pcb"]))
+    elif isinstance(j.get("project"), str):
+        want = os.path.realpath(os.path.splitext(os.path.join(d, j["project"]))[0] + ".kicad_pcb")
+    if want is None or want == target or os.environ.get("LAYOUT_PLACEMENT_ALTERNATE") == "1":
+        return
+    raise SystemExit(f"{target} is not the project's board ({want}, from {cfg}). "
+                     "Work on the configured board, or set LAYOUT_PLACEMENT_ALTERNATE=1 "
+                     "only when the user asked for an alternate board.")
+
+
+def _sockets():
+    """Backplane's KiCad sockets: under $XDG_RUNTIME_DIR/backplane/kicad, or
+    <Backplane home>/run/kicad where there is no runtime directory (macOS)."""
+    if os.environ.get("LAYOUT_PLACEMENT_SOCKETS"):
+        pats = [os.environ["LAYOUT_PLACEMENT_SOCKETS"]]
+    else:
+        roots = [os.environ.get("XDG_RUNTIME_DIR"), f"/run/user/{os.getuid()}"]
+        pats = [os.path.join(r, "backplane", "kicad", "*", "api.sock") for r in roots if r]
+        homes = [os.environ.get("BACKPLANE_HOME"), os.path.expanduser("~/.backplane-bend")]
+        pats += [os.path.join(h, "run", "kicad", "*", "api.sock") for h in homes if h]
+    return sorted({os.path.realpath(p) for pat in pats for p in glob.glob(pat)})
+
+
 def find_socket(board_path):
-    """The Backplane API socket whose server has this board open."""
-    if os.environ.get("KICAD_API_SOCKET"):
-        return os.environ["KICAD_API_SOCKET"]
+    """The API socket of the one KiCad server that has this board open.
+
+    KICAD_API_SOCKET names a socket; the server behind it must have this
+    board open. Otherwise every Backplane server is asked, and exactly one
+    may have the board open: none or several is an error, never a guess.
+    LAYOUT_PLACEMENT_SOCKETS replaces the glob of Backplane's sockets (tests)."""
+    if not board_path:
+        raise SystemExit("name the board (.kicad_pcb); the scripts never pick one")
     target = os.path.realpath(board_path)
-    seen = []
-    for sock in glob.glob(f"/run/user/{os.getuid()}/backplane/kicad/*/api.sock"):
+    _canonical(target)
+    env = os.environ.get("KICAD_API_SOCKET")
+    if env:
         try:
-            k = KiCad(socket_path="ipc://" + sock, client_name="works.backplane.placement", timeout_ms=15000)
-            d = k.get_board().document
-            path = os.path.realpath(os.path.join(d.project.path, d.board_filename))
+            path = _open_board(KiCad(socket_path=env, client_name="works.backplane.placement", timeout_ms=15000))
+        except Exception as e:
+            raise SystemExit(f"KICAD_API_SOCKET={env}: no board answers ({type(e).__name__}: {e})")
+        if path != target:
+            raise SystemExit(f"KICAD_API_SOCKET={env} has {path} open, not {target}: refusing")
+        return env
+    seen, hits = [], []
+    for sock in _sockets():
+        try:
+            path = _open_board(KiCad(socket_path="ipc://" + sock, client_name="works.backplane.placement",
+                                     timeout_ms=15000))
         except Exception as e:
             seen.append(f"{sock}: {type(e).__name__}")
             continue
-        if path == target:
-            return "ipc://" + sock
         seen.append(f"{sock}: {path}")
+        if path == target:
+            hits.append("ipc://" + sock)
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise SystemExit(f"{len(hits)} KiCad servers have {board_path} open; only one may. Servers:\n  "
+                         + "\n  ".join(seen))
     raise SystemExit(f"no KiCad API server has {board_path} open; open it with kicad_ipc OpenDocument first, "
-                     "or pass the socket. Servers seen:\n  " + "\n  ".join(seen))
+                     "or set KICAD_API_SOCKET. Servers seen:\n  " + "\n  ".join(seen or ["none"]))
 
 
-def load(board_path=None, socket=None):
+def load(board_path, socket=None):
     k = KiCad(socket_path=socket or find_socket(board_path), client_name="works.backplane.placement", timeout_ms=30000)
+    if socket:
+        _canonical(os.path.realpath(board_path))
+    if socket and _open_board(k) != os.path.realpath(board_path):
+        raise SystemExit(f"{socket} does not have {board_path} open: refusing")
     board = k.get_board()
     fps_raw = board.get_footprints()
     pads_raw = board.get_pads()
@@ -155,11 +233,17 @@ def load(board_path=None, socket=None):
         print("warning: no courtyard read for " + " ".join(missing), file=sys.stderr)
     outl = _polys(edge)
     return {"footprints": fps, "outline": max(outl, key=lambda p: p.area) if outl else None,
-            "fixed_copper": fixed, "board": board}
+            "fixed_copper": fixed, "board": board, "path": os.path.realpath(board_path)}
 
 
 def by_ref(b):
     return {fp.ref: fp for fp in b["footprints"]}
+
+
+def need(fps, ref, path):
+    if ref not in fps:
+        raise SystemExit(f"no footprint {ref} on {path}")
+    return fps[ref]
 
 
 def pads_by_net(b):
