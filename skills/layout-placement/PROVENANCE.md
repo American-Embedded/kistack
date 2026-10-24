@@ -61,7 +61,34 @@ the path as inline. With `--rf-track 0.3` the port prints what v19 prints
 (tested on a synthetic chain). The lab's regression of the new check (the
 Nordic reference, a hand-corrected showcase that is not agent output, and
 three agent boards) is theirs, in the lab's `extra/handoff/v19_rf_regression/`,
-and was not run again here. The lab's fresh-agent verification of v19 was
+and was not run again here.
+
+## v20 (vendor ground tie over an inline shunt)
+
+The lab's fresh v19 runs (their `layout-placement-v19.README.md`) found a
+gap: an Opus 5.5 run put all three shunts inline but moved C6's ground
+1.332 mm from pin 32, against Nordic's note that it connects only to pin 32
+on the top layer, and failed the RF group; a GPT-6.1 Sol run kept a 0.18 mm
+branch and its ground 0.352 mm from pin 32.
+
+The lab's v20 (`layout-placement-v20.tar.gz`, sha256
+`8ea5080231642120d53912c713c3bde592ead2f087ceee333cc608cf999c55bb`, files
+matching `skills/snapshots/v20.sha256`; v18 and v19 unchanged) changes:
+
+- SKILL.md: a ground or return the vendor documents for a shunt takes
+  precedence over an inline node pad. The ground goes at its documented
+  return first, the node pad as close to the line as the courtyards allow,
+  the branch is reported, and the ground is never moved off its return to
+  make the shunt inline; each documented tie is passed with `--tie`.
+- `placement_audit.py`: a shunt on the chain with a `--tie` shows the tie's
+  gap, and a tie longer than the part's own courtyard reads `TIE STRETCHED`
+  there and in the ties section. Without `--tie` nothing about ties is
+  reported.
+
+Ported here unchanged in substance on top of v19's port (so `--rf-track`
+stays required). On a synthetic chain the port prints what v20 prints with
+the same ties. The lab's tie regression (`v20_rf_tie_regression/`) and its
+fresh Opus run of v20 are theirs and not repeated here; the fresh run was
 pending when this copy was made.
 
 ## Changes in this copy

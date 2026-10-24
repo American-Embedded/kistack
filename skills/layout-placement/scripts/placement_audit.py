@@ -19,7 +19,10 @@ Prints, worst first:
            every shunt on it whether its node pad lies on the series path (a
            --rf-track wide track between the two series pads or the port it joins)
            or how long a branch track it needs to reach that path
-  ties     with --tie: the gap of each vendor-mandated pad-to-pin connection
+  ties     with --tie: the gap of each vendor-mandated pad-to-pin connection,
+           flagged when it is longer than the part's courtyard; a shunt on the
+           chain also shows its tie, since a documented return takes precedence
+           over an inline node pad
 
 usage: placement_audit.py board.kicad_pcb --ic REF [--ground GND] [--front 2.0]
        [--via MM] [--clear MM] [--track MM] [--edge MM]
@@ -63,6 +66,25 @@ def via_gap(b, pad, via, clear, edge, search=1.2):
     if cand.is_empty:
         return None
     return max(0.0, cand.distance(pad.poly) - r)
+
+
+def tie_gaps(fps, ties):
+    """{part: (spec, gap_mm, stretched)} for each PART:NET=IC.PIN tie. A tie counts as
+    stretched when its gap is longer than the part's own courtyard: the part has been
+    moved away from its documented return."""
+    out = {}
+    for t in ties or []:
+        lhs, rhs = t.split("=")
+        ref, net = lhs.split(":")
+        ir, pin = rhs.split(".")
+        q = [x for x in fps[ref].pads if x.net == net]
+        pp = [x for x in fps[ir].pads if x.num == pin]
+        if q and pp:
+            gap = min(x.poly.distance(y.poly) for x in q for y in pp)
+            cy = fps[ref].courtyard
+            size = max(cy.bounds[2] - cy.bounds[0], cy.bounds[3] - cy.bounds[1]) if cy is not None else float("inf")
+            out[ref] = (t, gap, gap > size)
+    return out
 
 
 def main():
@@ -166,6 +188,7 @@ def main():
         if not ok:
             print(f"  pin {p.num:>3} {p.net:14} blocked by {', '.join(sorted(hits))}")
 
+    ties = tie_gaps(fps, a.tie)
     if a.chain:
         print("chain (gap of each link, antenna pin to port)")
         start_ref, start_pin = a.chain[0].split(".")
@@ -230,18 +253,18 @@ def main():
                                    f"(its edge is {q.poly.distance(LineString([c1, c2])):.3f} mm from the path's centre line)")
                     else:
                         verdict = f"OFF THE PATH: a {q.poly.distance(path):.3f} mm branch (stub) to reach it"
+                if fp.ref in ties:
+                    spec, gap, stretched = ties[fp.ref]
+                    verdict += f"; documented tie {spec} {gap:.3f} mm"
+                    if stretched:
+                        verdict += (" TIE STRETCHED: longer than the part; the documented return takes "
+                                    "precedence, so move the ground back to it and accept a short branch")
                 print(f"    {fp.ref:5} on {q.net:12} {d:6.3f} mm  {verdict}")
 
     if a.tie:
         print("ties (vendor-mandated pad to pin)")
-        for t in a.tie:
-            lhs, rhs = t.split("=")
-            ref, net = lhs.split(":")
-            ir, pin = rhs.split(".")
-            q = [x for x in fps[ref].pads if x.net == net]
-            pp = [x for x in fps[ir].pads if x.num == pin]
-            if q and pp:
-                print(f"  {t:20} {min(x.poly.distance(y.poly) for x in q for y in pp):6.3f} mm")
+        for ref, (spec, gap, stretched) in ties.items():
+            print(f"  {spec:20} {gap:6.3f} mm" + ("  TIE STRETCHED: longer than the part itself" if stretched else ""))
 
 
 if __name__ == "__main__":
