@@ -111,18 +111,39 @@ def venv_python():
 
 
 FAULT = r'''
-import runpy, sys
+import json, os, runpy, sys
 sys.path.insert(0, sys.argv[1])
 from kipy.board import Board
 real_push, real_fps = Board.push_commit, Board.get_footprints
 state = {}
+action = os.environ.get("FAULT", "count")
+board = sys.argv[3]
 def push(self, c, m=""):
     state["moved"] = m.startswith("move")
-    return real_push(self, c, m)
+    out = real_push(self, c, m)
+    # another writer, right after the move's commit
+    if state["moved"] and action == "sidecar":
+        p = board + ".backplane.json"
+        d = json.load(open(p))
+        d["x-other-writer"] = True
+        json.dump(d, open(p, "w"))
+    if state["moved"] and action == "board":
+        open(board, "a").write("\n")
+    return out
+real_save = Board.save
+def save(self):
+    real_save(self)
+    # a save that loses an extension record
+    if action == "drop-ext":
+        p = board + ".backplane.json"
+        d = json.load(open(p))
+        d["extensions"].pop("x-sentinel-item", None)
+        json.dump(d, open(p, "w"))
+Board.save = save
 def fps(self):
     out = list(real_fps(self))
     # right after the move's commit only: pretend a footprint vanished
-    return out[:-1] if state.get("moved") else out
+    return out[:-1] if state.get("moved") and action == "count" else out
 Board.push_commit, Board.get_footprints = push, fps
 sys.argv = [sys.argv[2]] + sys.argv[3:]
 runpy.run_path(sys.argv[0], run_name="__main__")
@@ -155,10 +176,13 @@ def main():
         wide = fixture(os.path.join(tmp, "wide"), "wide", "--track", "0.2", "--clearance", "0.15", "--via", "0.6")
         companion = board + ".backplane.json"
         with open(board) as f:
-            u1 = re.search(r'\(footprint "fixture:U1" \(layer "F.Cu"\) \(uuid "([0-9a-f-]+)"\)', f.read()).group(1)
+            u1 = re.search(r'\(footprint "fixture:R1" \(layer "F.Cu"\) \(uuid "([0-9a-f-]+)"\)', f.read()).group(1)
         # KiCad removes a companion file with no items, so give U1 a property to keep
+        # sentinels: entries of other tools and keys this KiCad does not know
         meta = {"format": "backplane-kicad-metadata", "version": 1,
-                "items": {u1: {"custom_properties": {"fixture.note": "kept"}}}}
+                "items": {u1: {"custom_properties": {"fixture.note": "kept"}, "x-sentinel-field": "keep"},
+                          "x-sentinel-item": {"x-note": "keep", "nested": {"a": 1}}}}
+        want_ext = {u1: {"x-sentinel-field": "keep"}, "x-sentinel-item": {"x-note": "keep", "nested": {"a": 1}}}
         with open(companion, "w") as f:
             json.dump(meta, f)
         shutil.copy(companion, os.path.join(tmp, "companion.orig"))
@@ -248,6 +272,9 @@ def main():
               rr.stdout + rr.stderr)
         r = run("move.py", board, "U1=110,100,0", env=S1)
         check("part with a paste-only pad moves", r.returncode == 0, r.stderr)
+        r = run("move.py", board, "R1=104,104.5,0", env=S1)
+        check("part with custom properties refused (the update would drop them)", r.returncode != 0
+              and "R1 has custom properties" in r.stderr and "Nothing was changed" in r.stderr, r.stderr)
         r = run("move.py", board, "C2=113.8,101,0,F", env=S1)
         c2 = pose_of(board, "C2", s1.url)
         check("flip back to F", r.returncode == 0 and c2 == ["113.8000", "101.0000", "0.0", "F.Cu"], r.stderr + str(c2))
@@ -257,6 +284,45 @@ def main():
         check("out-of-range move refused", r.returncode != 0, r.stderr + r.stdout)
         print("     (" + (r.stderr.strip().splitlines() or ["no message"])[-1][:200] + ")")
         check("out-of-range move left the file alone", sha(board) == before_file)
+
+        # companion metadata that cannot be kept stops --save before any change
+        comp_good = open(companion, "rb").read()
+        with open(companion, "w") as f:
+            f.write("{not json")
+        c1 = pose_of(board, "C1", s1.url)
+        r = run("move.py", board, "C1=103.5,97.5,0", "--save", env=S1)
+        check("unreadable companion refused before any change", r.returncode != 0
+              and "nothing was changed" in r.stderr and pose_of(board, "C1", s1.url) == c1
+              and sha(board) == before_file and open(companion).read() == "{not json", r.stderr)
+        for bad, word in (({**meta, "version": 3}, "version 1 or 2"),
+                          ({**meta, "x-sentinel-top": {"keep": 1}}, "top-level keys a save drops: x-sentinel-top"),
+                          ({**meta, "items": {**meta["items"], "no-such-item": {"custom_properties": {"a": "b"}}}},
+                           "no item on the board")):
+            with open(companion, "w") as f:
+                json.dump(bad, f)
+            r = run("move.py", board, "C1=103.5,97.5,0", "--save", env=S1)
+            check(f"companion a save would lose refused before any change ({word})", r.returncode != 0
+                  and word in r.stderr and "nothing was changed" in r.stderr
+                  and pose_of(board, "C1", s1.url) == c1 and sha(board) == before_file, r.stderr)
+        with open(companion, "wb") as f:
+            f.write(comp_good)
+
+        # another writer between the move and the save: nothing saved, parts put back
+        for what, path in (("sidecar", companion), ("board", board)):
+            keep = open(path, "rb").read()
+            r = subprocess.run([venv_python(), "-s", fault, os.path.join(SKILL, "scripts"),
+                                os.path.join(SKILL, "scripts", "move.py"), board, "C1=103.5,97.5,0", "--save"],
+                               capture_output=True, text=True, env={**e, "FAULT": what})
+            other = open(path, "rb").read()
+            check(f"{what} changed by another writer: not saved, parts put back", r.returncode != 0
+                  and "changed on disk" in r.stderr and "put back where they were" in r.stderr
+                  and pose_of(board, "C1", s1.url) == c1 and other != keep
+                  and (what == "board" or sha(board) == before_file), r.stderr)
+            if what == "sidecar":
+                check("the other writer's companion is left as they wrote it",
+                      json.loads(other).get("x-other-writer") is True)
+            with open(path, "wb") as f:
+                f.write(keep)
 
         # --save writes the configured board, and nothing else
         cfg_before = sha(os.path.join(proj, ".backplane.json"))
@@ -268,28 +334,34 @@ def main():
             text = f.read()
         check("saved file has the new position", re.search(r"\(at\s+104\.6\s+98\.4\s+90\)|\(translate\s+104\.6\s+98\.4\)\s*\(rotate\s+90\)", text) is not None,
               "C1 position not found in the file")
-        # Backplane KiCad rewrites <board>.backplane.json on every save from what it
-        # attached on load; move.py --save must leave it exactly as a plain
-        # SaveDocument of the same board does
-        ctrl_dir = os.path.join(tmp, "ctrl")
-        shutil.copytree(os.path.join(proj, "board"), ctrl_dir)
-        shutil.copy(os.path.join(tmp, "companion.orig"), os.path.join(ctrl_dir, "fixture.kicad_pcb.backplane.json"))
-        sc = Server(cli, os.path.join(ctrl_dir, "fixture.kicad_pcb"), os.path.join(tmp, "sc"))
-        servers.append(sc)
-        code = ("import sys; from kipy import KiCad; KiCad(socket_path=sys.argv[1], timeout_ms=15000).get_board().save()")
-        subprocess.run([venv_python(), "-s", "-c", code, sc.url], check=True, capture_output=True)
-        sc.stop()
-        servers.remove(sc)
-
-        def companion_of(path):
-            if not os.path.exists(path):
-                return None
-            with open(path) as f:
-                return json.load(f)
-        mine, plain = companion_of(companion), companion_of(os.path.join(ctrl_dir, "fixture.kicad_pcb.backplane.json"))
-        check("companion metadata handled as KiCad's own save", mine == plain,
-              f"move.py: {json.dumps(mine)[:200]}  plain save: {json.dumps(plain)[:200]}")
-        print(f"     (after save the companion file is {'absent' if mine is None else 'present'})")
+        # every sentinel survives the save: extension records in the companion
+        # (now version 2), the custom property in the board file itself
+        kept = json.load(open(companion)) if os.path.exists(companion) else {}
+        check("companion extension sentinels survive --save", kept.get("version") == 2
+              and kept.get("extensions") == want_ext, json.dumps(kept)[:400])
+        check("custom property sentinel moved into the board file",
+              re.search(r'\(custom_property\s+"fixture\.note"\s+"kept"', open(board).read()) is not None)
+        check("--save says what it kept", "2 extension records kept" in r.stdout, r.stdout)
+        # a version 2 companion survives a second save
+        r = run("move.py", board, "C1=104.6,98.3,90", "--save", env=S1)
+        kept = json.load(open(companion)) if os.path.exists(companion) else {}
+        check("version 2 companion survives another save", r.returncode == 0 and kept.get("extensions") == want_ext,
+              r.stderr + json.dumps(kept)[:300])
+        # a save that drops a record: it is put back
+        r = subprocess.run([venv_python(), "-s", fault, os.path.join(SKILL, "scripts"),
+                            os.path.join(SKILL, "scripts", "move.py"), board, "C1=104.6,98.4,90", "--save"],
+                           capture_output=True, text=True, env={**e, "FAULT": "drop-ext"})
+        kept = json.load(open(companion)) if os.path.exists(companion) else {}
+        check("an extension record the save dropped is put back", r.returncode == 0
+              and "put back 1 extension record" in r.stdout and kept.get("extensions") == want_ext,
+              r.stdout + r.stderr + json.dumps(kept)[:300])
+        # the saved board and its companion load again
+        s4 = Server(cli, board, os.path.join(tmp, "s4"))
+        servers.append(s4)
+        r = run("pin_sides.py", board, "U1", env={"KICAD_API_SOCKET": s4.url})
+        check("saved board and companion load in a new server", r.returncode == 0, r.stderr)
+        s4.stop()
+        servers.remove(s4)
         check(".backplane.json kept", sha(os.path.join(proj, ".backplane.json")) == cfg_before)
         drc = os.path.join(tmp, "drc.json")
         subprocess.run([cli, "pcb", "drc", "--format", "json", "-o", drc, board], capture_output=True)
@@ -301,7 +373,8 @@ def main():
         r = run("route_check.py", board, "--ic", "U1", env=S1)
         check("route_check runs", r.returncode == 0 and "all local links together" in r.stdout, r.stderr + r.stdout)
         check("route_check names the board's rules",
-              "track width 0.150 mm (fixture.kicad_pro)" in r.stderr and "via diameter 0.500 mm" in r.stderr, r.stderr)
+              "track width 0.150 mm (" in r.stderr and "via diameter 0.500 mm (" in r.stderr
+              and "clearance 0.100 mm (" in r.stderr and "copper to edge 0.200 mm (" in r.stderr, r.stderr)
         r = run("placement_audit.py", board, "--ic", "U1", env=S1)
         check("placement_audit runs", r.returncode == 0 and "fronts (" in r.stdout, r.stderr)
         r = run("local_search.py", board, "--ic", "U1", "--pin", "1", "--part", "C1", "--top", "2", env=S1)
@@ -347,11 +420,72 @@ def main():
         sd.stop()
         servers.remove(sd)
 
+        # custom net classes, board minimums, overrides, pairs and custom rules
+        cls = fixture(os.path.join(tmp, "cls"), "cls", "--klass", "Power:0.3:0.2:0.7:VDD", "--pad-clearance", "5=0.35")
+        pair = fixture(os.path.join(tmp, "pair"), "pair", "--klass", "Pair:0.15:0.1:0.5:USB_*:x:0.25:0.12",
+                       "--min-clearance", "0.25")
+        dru = fixture(os.path.join(tmp, "dru"), "dru", "--dru",
+                      "(version 1)\n# a comment (rule not_a_rule)\n(rule big (constraint clearance (min 0.5mm)))\n")
+        for bd in (cls, pair, dru):
+            sv = Server(cli, bd, os.path.join(tmp, "s-" + os.path.basename(bd)))
+            servers.append(sv)
+            E = {"KICAD_API_SOCKET": sv.url}
+            if bd == cls:
+                r = run("route_check.py", bd, "--ic", "U1", env=E)
+                check("a custom net class sets track and via", r.returncode == 0
+                      and "track width 0.300 mm (net class Power on VDD)" in r.stderr
+                      and "via diameter 0.700 mm (net class Power on VDD)" in r.stderr, r.stderr)
+                check("a pad clearance override sets clearance",
+                      "clearance 0.350 mm (pad U1.5 clearance override)" in r.stderr, r.stderr)
+                r = run("placement_audit.py", bd, "--ic", "U1", env=E)
+                check("placement_audit uses the same rules", r.returncode == 0
+                      and "clearance 0.350 mm (pad U1.5" in r.stderr, r.stderr)
+                r = run("route_check.py", bd, "--ic", "U1", "--clear", "0.1", env=E)
+                check("a flag looser than the board refused", r.returncode != 0
+                      and "looser than the board's 0.350 mm" in r.stderr, r.stderr)
+                r = run("route_check.py", bd, "--ic", "U1", "--clear", "0.1", "--rules-override", env=E)
+                check("--rules-override runs and says it is looser", r.returncode == 0
+                      and "LOOSER THAN THE BOARD" in r.stderr and "results do not hold" in r.stderr, r.stderr)
+                r = run("route_check.py", bd, "--ic", "U1", "--clear", "0.4", env=E)
+                check("a stricter flag runs", r.returncode == 0 and "clearance 0.400 mm (flag)" in r.stderr, r.stderr)
+            elif bd == pair:
+                r = run("route_check.py", bd, "--ic", "U1", env=E)
+                check("a pattern-assigned pair class sets the track to the pair width", r.returncode == 0
+                      and "track width 0.250 mm (net class Pair pair width on USB_" in r.stderr, r.stderr)
+                check("pairs are named as routed as single tracks",
+                      "2 nets are differential pairs (USB_N, USB_P)" in r.stderr, r.stderr)
+                check("a board minimum sets clearance",
+                      "clearance 0.250 mm (board minimum min_clearance)" in r.stderr, r.stderr)
+            else:
+                r = run("route_check.py", bd, "--ic", "U1", env=E)
+                check("custom DRC rules refused without flags", r.returncode != 0
+                      and "custom DRC rules" in r.stderr, r.stderr)
+                r = run("route_check.py", bd, "--ic", "U1", "--track", "0.15", "--clear", "0.5", "--via", "0.5",
+                        "--edge", "0.2", env=E)
+                check("custom DRC rules with all four flags runs and says they are not evaluated",
+                      r.returncode == 0 and "are not evaluated" in r.stderr, r.stderr)
+            sv.stop()
+            servers.remove(sv)
+
         sw = Server(cli, wide, os.path.join(tmp, "sw"))
         servers.append(sw)
         r = run("route_check.py", wide, "--ic", "U1", env={"KICAD_API_SOCKET": sw.url})
         check("other rules are read", r.returncode == 0 and "track width 0.200 mm" in r.stderr
               and "clearance 0.150 mm" in r.stderr and "via diameter 0.600 mm" in r.stderr, r.stderr)
+
+        # what a bp.4 save keeps, and what counts as lost
+        code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import sidecar as s; "
+                "v1 = {'format': 'f', 'version': 1, 'items': {'a': {'custom_properties': {'p': 'q'}, 'x': 1}, "
+                "'b': {'start_ending': {}}}}; "
+                "e, p = s.expected(v1); "
+                "v2 = {'version': 2, 'extensions': {'a': {'x': 2}}}; "
+                "print(json.dumps([e, p, s.lost_extensions(e, v2), s.lost_extensions(e, None), "
+                "s.lost_properties(p, '(custom_property \"p\" \"q\" (at 0 0))'), s.lost_properties(p, '')]))")
+        rr = subprocess.run([sys.executable, "-I", "-c", code, os.path.join(SKILL, "scripts")], capture_output=True,
+                            text=True)
+        check("the save's mapping and the loss checks",
+              rr.stdout.strip() == '[{"a": {"x": 1}}, {"a": {"p": "q"}}, {"a": {"x": 1}}, {"a": {"x": 1}}, [], ["a:p"]]',
+              rr.stdout + rr.stderr)
 
         if a.v18:
             for script, args in (("route_check.py", ["--ic", "U1"]), ("placement_audit.py", ["--ic", "U1"])):

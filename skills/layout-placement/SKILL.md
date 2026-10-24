@@ -241,13 +241,21 @@ satisfy and why.
 
 ## What the checks assume
 
-- **Rules.** The scripts take track width, clearance and via diameter from
-  the Default net class in the board's `.kicad_pro`, and the copper-to-edge
-  clearance from its board rules. Each script prints the rules it used and
-  where each came from. When the project file does not give one, the script
-  stops; pass `--track --clear --via --edge` with the values the board is
-  made to. Nets in other net classes (wide power tracks, RF clearances) need
-  their values passed for that run.
+- **Rules.** The checks route and measure with one value each for track
+  width, clearance, via diameter and copper-to-edge clearance. Each is the
+  strictest the board applies anywhere: every net's class as KiCad resolves
+  it, the board minimums in the `.kicad_pro`, and pad and footprint
+  clearance overrides. Each script prints the values and what set each one.
+  A strict class elsewhere on the board makes the check stricter than a
+  given connection needs, so a failure can come from that. Differential
+  pairs are routed as single tracks at least the pair width wide; their
+  coupling and gap are not checked.
+- **What makes a script stop.** A board without a `.kicad_pro`, or with
+  custom DRC rules in a `.kicad_dru`, which the checks cannot evaluate,
+  needs `--track --clear --via --edge`. A flag stricter than the board is
+  fine. A flag looser than the board is refused unless `--rules-override`
+  is given, and then the output says the check was looser than the board.
+  Use it only when the user asks for that.
 - **Scope.** One IC per run: run a check again for each IC. Parts with four
   pads or fewer count as the IC's local parts. Local links are routed on
   F.Cu only, and two copper layers are modelled.
@@ -280,15 +288,22 @@ installed, else with python3 and pip. It installs nothing elsewhere.
   checks read the server, so you can try a move, check it and move again.
 - `move.py` checks every argument before it asks KiCad anything, takes
   each part once per call, and refuses a reference that two footprints
-  share. `,B` or `,F` flips the part with KiCad's own flip, so its pads and
+  share, or a part with custom properties (this KiCad's footprint update
+  drops them; move such a part in KiCad itself). `,B` or `,F` flips the part with KiCad's own flip, so its pads and
   courtyard go to that side. If KiCad does not place a part as asked, it
   drops the commit. If the footprint count, the net of any fixed copper, or a
   moved part's position reads back wrong after the commit, it puts the parts
   back and does not save. It exits non-zero whenever the board was not
   changed as asked.
 - `--save` writes the board KiCad has open, which the script has checked is
-  the configured one. KiCad rewrites the board's `.backplane.json`
-  companion file on every save, as Backplane's own saves do.
+  the configured one, and keeps its `.backplane.json` companion file.
+  Before any change it refuses a companion that a save would lose part of
+  (an unknown version, other top-level keys, properties for an item the
+  board does not have). It also refuses to save when the board or the
+  companion changed on disk meanwhile. After the save it checks that every
+  extension record and custom property survived, and puts back a record
+  the save dropped. A copy of the companion is kept under
+  `~/.cache/kistack/layout-placement/backups`.
 - `scripts/ipc_board.py` loads pads, courtyards, outline and fixed copper for
   your own checks.
 - kicad-cli DRC reads the file, so save first.

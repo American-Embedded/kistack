@@ -13,7 +13,7 @@ import json
 import os
 import uuid
 
-NETS = ["", "GND", "VDD", "RF", "XC1", "SIG1", "SIG2", "SIG3", "SIG4", "SIG5", "SIG6", "SIG7", "SIG8", "SIG9", "SIG10", "SIG11"]
+NETS = ["", "GND", "VDD", "RF", "XC1", "SIG1", "SIG2", "SIG3", "SIG4", "SIG5", "SIG6", "SIG7", "SIG8", "SIG9", "USB_P", "USB_N"]
 
 
 def u():
@@ -24,9 +24,13 @@ def net(name):
     return f'(net {NETS.index(name)} "{name}")' if name else ""
 
 
+PAD_CLEARANCE = {}
+
+
 def pad(num, x, y, w, h, n):
+    c = PAD_CLEARANCE.get(str(num))
     return (f'(pad "{num}" smd roundrect (at {x} {y}) (size {w} {h}) (layers "F.Cu" "F.Paste" "F.Mask") '
-            f'(roundrect_rratio 0.25) {net(n)} (uuid "{u()}"))')
+            f'(roundrect_rratio 0.25) {net(n)}' + (f" (clearance {c})" if c else "") + f' (uuid "{u()}"))')
 
 
 def crt(x0, y0, x1, y1):
@@ -40,10 +44,14 @@ def fp(ref, val, x, y, rot, pads, cy):
             f'  (attr smd)\n  {cy}\n  ' + "\n  ".join(pads) + "\n)")
 
 
-def qfn():
+def qfn(pad_clearance=None):
     # 16 pins, 4 a side, 0.65 mm pitch, pads 0.3 x 0.7 at 1.95 mm from centre
+    PAD_CLEARANCE.clear()
+    if pad_clearance:
+        num, mm = pad_clearance.split("=")
+        PAD_CLEARANCE[num] = mm
     nets = ["VDD", "SIG1", "SIG2", "XC1", "SIG3", "SIG4", "RF", "GND", "SIG5", "SIG6", "VDD", "SIG7",
-            "SIG8", "SIG9", "SIG10", "SIG11"]
+            "SIG8", "SIG9", "USB_P", "USB_N"]
     ps, k = [], 0
     offs = [-0.975, -0.325, 0.325, 0.975]
     for side in range(4):
@@ -71,7 +79,7 @@ def two_pin(n1, n2):
 def board(rules):
     dup = [fp("R1", "10k", 116.0, 105.0, 0, two_pin("SIG2", "VDD"), crt(-0.91, -0.46, 0.91, 0.46))] if rules.dup else []
     fps = dup + [
-        fp("U1", "QFN16", 110, 100, 0, qfn(), crt(-2.6, -2.6, 2.6, 2.6)),
+        fp("U1", "QFN16", 110, 100, 0, qfn(rules.pad_clearance), crt(-2.6, -2.6, 2.6, 2.6)),
         fp("C1", "100n", 106.2, 99.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
         fp("C2", "100n", 113.8, 101.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
         fp("C3", "12p", 106.2, 101.5, 0, two_pin("XC1", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
@@ -102,16 +110,25 @@ def board(rules):
 
 
 def project(rules):
+    classes = [{"name": "Default", "clearance": rules.clearance, "track_width": rules.track,
+                "via_diameter": rules.via, "via_drill": round(rules.via / 2, 3), "priority": 2147483647,
+                "diff_pair_width": rules.track, "diff_pair_gap": rules.clearance}]
+    patterns = []
+    for i, k in enumerate(rules.klass or []):
+        f = k.split(":")
+        c = {"name": f[0], "track_width": float(f[1]), "clearance": float(f[2]), "via_diameter": float(f[3]),
+             "via_drill": round(float(f[3]) / 2, 3), "priority": i}
+        if len(f) > 7:
+            c["diff_pair_width"], c["diff_pair_gap"] = float(f[6]), float(f[7])
+        classes.append(c)
+        patterns.append({"netclass": f[0], "pattern": f[4]})
     return {
         "board": {"design_settings": {"rules": {"min_copper_edge_clearance": rules.edge,
-                                                 "min_clearance": rules.clearance,
+                                                 "min_clearance": rules.min_clearance or rules.clearance,
                                                  "min_track_width": rules.track,
                                                  "min_via_diameter": rules.via}}},
         "meta": {"filename": "fixture.kicad_pro", "version": 3},
-        "net_settings": {"classes": [{"name": "Default", "clearance": rules.clearance,
-                                      "track_width": rules.track, "via_diameter": rules.via,
-                                      "via_drill": round(rules.via / 2, 3)}],
-                         "meta": {"version": 4}},
+        "net_settings": {"classes": classes, "netclass_patterns": patterns, "meta": {"version": 4}},
     }
 
 
@@ -125,10 +142,18 @@ def main():
     ap.add_argument("--edge", type=float, default=0.2)
     ap.add_argument("--no-project", action="store_true")
     ap.add_argument("--dup", action="store_true", help="a second footprint with the reference R1")
+    ap.add_argument("--klass", action="append",
+                    help="NAME:track:clearance:via:netpattern[:x:pairwidth:pairgap], a net class assigned by pattern")
+    ap.add_argument("--min-clearance", type=float, help="the board's min_clearance (default: --clearance)")
+    ap.add_argument("--dru", help="text of a custom rules file <name>.kicad_dru")
+    ap.add_argument("--pad-clearance", help="PIN=mm, a clearance override on that U1 pad")
     a = ap.parse_args()
     os.makedirs(a.dir, exist_ok=True)
     with open(os.path.join(a.dir, a.name + ".kicad_pcb"), "w") as f:
         f.write(board(a))
+    if a.dru:
+        with open(os.path.join(a.dir, a.name + ".kicad_dru"), "w") as f:
+            f.write(a.dru)
     if not a.no_project:
         p = project(a)
         p["meta"]["filename"] = a.name + ".kicad_pro"

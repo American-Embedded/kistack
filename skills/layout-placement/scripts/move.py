@@ -19,8 +19,16 @@ side of its SMD pads are read back. If anything differs, the parts are put
 back (flipped back, old poses), the board is read back again, and nothing is
 saved. The script exits non-zero whenever the board was not changed as
 asked, and says whether putting the parts back worked.
+
+With --save, the board's companion metadata (<board>.backplane.json) is
+kept (sidecar.py): before anything changes the script refuses a companion
+that a save would lose part of, it refuses to save when the board or the
+companion changed on disk meanwhile, and after the save it checks that
+every extension record and custom property survived, putting back an
+extension record the save dropped.
 """
 import argparse
+import json
 import math
 import os
 import sys
@@ -32,6 +40,7 @@ from kipy.util import pack_any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipc_board  # noqa: E402
+import sidecar  # noqa: E402
 
 
 def parse(moves):
@@ -179,6 +188,19 @@ def main():
     moves = parse(a.moves)
     loaded = ipc_board.load(a.board)
     b = loaded["board"]
+    snap = None
+    if a.save:
+        # the companion metadata and the board file as they are now, before
+        # any change: refused if the companion is not metadata we can keep
+        known = {"root"}
+        for f in b.get_footprints():
+            known.add(f.id.value)
+            known.update(p.id.value for p in f.definition.pads)
+        known.update(sh.id.value for sh in b.get_shapes())
+        try:
+            snap = sidecar.Snapshot(loaded["path"], known)
+        except sidecar.Unsupported as e:
+            sys.exit(f"{e}; --save would lose it, so nothing was changed")
     all_fps = b.get_footprints()
     count = len(all_fps)
     fps, seen = {}, {}
@@ -193,6 +215,30 @@ def main():
     if shared:
         sys.exit("more than one footprint has the reference " + " ".join(shared) + "; give each a unique "
                  "reference first; nothing changed")
+    # bp.4's footprint update drops a footprint's custom properties (the
+    # board file's (custom_property ...), and v1 companion ones applied at
+    # load): refuse to move such a part rather than lose them
+    with open(loaded["path"]) as fh:
+        text = fh.read()
+    try:
+        with open(sidecar.path_of(loaded["path"])) as fh:
+            comp = json.load(fh)
+        v1_props = {k for k, e in comp.get("items", {}).items() if isinstance(e, dict) and e.get("custom_properties")} \
+            if comp.get("version") == 1 else set()
+    except (OSError, ValueError, AttributeError):
+        v1_props = set()
+    held = []
+    for ref, *_ in moves:
+        fid = fps[ref].id.value
+        i = text.find(f'(uuid "{fid}")')
+        j = text.find("\n\t(footprint ", i) if i >= 0 else -1
+        block = text[i:j if j >= 0 else len(text)] if i >= 0 else ""
+        if "(custom_property " in block or fid in v1_props:
+            held.append(ref)
+    if held:
+        sys.exit(" ".join(held) + " ha" + ("s" if len(held) == 1 else "ve") + " custom properties, which this "
+                 "KiCad's footprint update drops; move " + ("it" if len(held) == 1 else "them")
+                 + " in KiCad itself. Nothing was changed")
     nets_before = {sh.id.value: sh.net.name for sh in b.get_shapes()}
     refs = [m[0] for m in moves]
     before, changed, flips = [], [], []
@@ -239,8 +285,20 @@ def main():
             print(f"{r:6s} {f.position.x / 1e6:.4f} {f.position.y / 1e6:.4f} {f.orientation.degrees:.1f}"
                   f" {'B' if f.layer == BoardLayer.BL_B_Cu else 'F'}")
     if a.save:
+        changed = snap.changed()
+        if changed:
+            sys.exit(", ".join(changed) + " changed on disk since this script started (another writer?); "
+                     + restore(b, flips, before, refs, count) + "; not saved")
+        kept = snap.backup()
         b.save()
+        try:
+            msg = sidecar.after_save(snap)
+        except (OSError, ValueError) as e:
+            sys.exit(f"saved {loaded['path']}, but its companion metadata was not kept ({e}); "
+                     f"the earlier {os.path.basename(snap.path)} is at {kept}")
         print(f"saved {loaded['path']}")
+        if msg:
+            print(msg)
     else:
         print("not saved: the change is in the KiCad server only (--save writes the board)")
 
