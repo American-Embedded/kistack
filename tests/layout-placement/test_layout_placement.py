@@ -10,6 +10,7 @@ LAYOUT_PLACEMENT_SOCKETS pointing at this test's own sockets). The skill's
 scripts run through scripts/run.sh, so the first run also sets up their
 Python environment from requirements.txt.
 
+--skill DIR: test another copy of the skill (a packaged one) instead.
 --v18 DIR: the frozen v18 skill folder; its route_check.py and
 placement_audit.py must print the same as this copy's on a board whose rules
 are v18's built-in ones.
@@ -28,7 +29,6 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.normpath(os.path.join(HERE, "..", "..", "skills", "layout-placement"))
-RUN = os.path.join(SKILL, "scripts", "run.sh")
 FAILS = []
 PASSES = []
 
@@ -88,7 +88,7 @@ def run(script, *args, env=None, extra_env=None):
     e.pop("KICAD_API_SOCKET", None)
     e.update(env or {})
     e.update(extra_env or {})
-    return subprocess.run([RUN, script, *args], capture_output=True, text=True, env=e, timeout=600)
+    return subprocess.run([os.path.join(SKILL, "scripts", "run.sh"), script, *args], capture_output=True, text=True, env=e, timeout=600)
 
 
 def pose_of(board, ref, sock):
@@ -133,7 +133,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--v18", help="the frozen v18 layout-placement folder, to compare outputs")
     ap.add_argument("--keep", action="store_true", help="keep the temporary folder")
+    ap.add_argument("--skill", help="the layout-placement folder to test (default: this repository's), "
+                                    "e.g. a packaged copy")
     a = ap.parse_args()
+    global SKILL
+    if a.skill:
+        SKILL = os.path.realpath(a.skill)
+    print("testing", SKILL)
     cli = os.environ.get("KICAD_CLI") or shutil.which("kicad-cli")
     if not cli:
         sys.exit("set KICAD_CLI to a kicad-cli with api-server")
