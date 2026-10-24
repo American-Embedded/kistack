@@ -11,6 +11,7 @@ For normal placement, routing, and cleanup work, first identify the project's ca
 
 - Make sure that footprints are good for each part and try to get decent 3d models. if you can't find good 3d models, just create your own low fidelity 3d models. keep the projects library structure but prefer to put stuff on a self contained project library files.
 - When you have access to kicad IPC(-type) tools, or kiPy, always strongly prefer to use them.
+- For component placement, use the layout-placement skill: it orders parts by how little distance each connection tolerates and has IPC scripts to move parts and check distances and routability.
 - in regards to autorouting: prefer not to use any autorouting software, do routing "manually", your self, unless instructed otherwise. If the boards becomes very complex, with low pitched components and ~thousands of nets, you can choose to use autorouting, tscircuit or freerouting for example. but avoid it if possible
 - Unless specifically instructed otherwise: Feel free and compeled to make changes to the schematic in order to make layout more logical and clean. Perform pin swaps and stuff like that so traces are shorter, have less layer jumps and generally are cleaner. But this comes with risks, be very careful not to disturb any of the projects goals or functionality during those pin swaps. and be very careful not to introduce new bugs to the schematic.
 - Again, on layout as well, you are free (unless instructed otherwise) to change even high level placement until you get an easily routable and fully functional board.

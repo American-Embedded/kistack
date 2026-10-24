@@ -1,0 +1,4 @@
+kicad-python==0.8.0
+shapely==2.2.0
+numpy==2.5.4
+protobuf==5.29.6
