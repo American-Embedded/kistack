@@ -481,7 +481,7 @@ def main():
                 "v2 = {'version': 2, 'extensions': {'a': {'x': 2}}}; "
                 "print(json.dumps([e, p, s.lost_extensions(e, v2), s.lost_extensions(e, None), "
                 "s.lost_properties(p, '(custom_property \"p\" \"q\" (at 0 0))'), s.lost_properties(p, '')]))")
-        rr = subprocess.run([sys.executable, "-I", "-c", code, os.path.join(SKILL, "scripts")], capture_output=True,
+        rr = subprocess.run([sys.executable, "-I", "-B", "-c", code, os.path.join(SKILL, "scripts")], capture_output=True,
                             text=True)
         check("the save's mapping and the loss checks",
               rr.stdout.strip() == '[{"a": {"x": 1}}, {"a": {"p": "q"}}, {"a": {"x": 1}}, {"a": {"x": 1}}, [], ["a:p"]]',
