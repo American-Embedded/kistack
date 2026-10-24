@@ -115,14 +115,14 @@ import runpy, sys
 sys.path.insert(0, sys.argv[1])
 from kipy.board import Board
 real_push, real_fps = Board.push_commit, Board.get_footprints
-state = {"pushes": 0}
+state = {}
 def push(self, c, m=""):
-    state["pushes"] += 1
+    state["moved"] = m.startswith("move")
     return real_push(self, c, m)
 def fps(self):
     out = list(real_fps(self))
-    # after the first commit only: pretend a footprint vanished
-    return out[:-1] if state["pushes"] == 1 else out
+    # right after the move's commit only: pretend a footprint vanished
+    return out[:-1] if state.get("moved") else out
 Board.push_commit, Board.get_footprints = push, fps
 sys.argv = [sys.argv[2]] + sys.argv[3:]
 runpy.run_path(sys.argv[0], run_name="__main__")
@@ -228,6 +228,28 @@ def main():
               str(pose_of(board, "C1", s1.url)))
         check("integrity failure did not save", sha(board) == before_file)
 
+        # a side change is a real flip, and a failure after it is undone too
+        r = subprocess.run([venv_python(), "-s", fault, os.path.join(SKILL, "scripts"),
+                            os.path.join(SKILL, "scripts", "move.py"), board, "C2=114,103,0,B"],
+                           capture_output=True, text=True, env=e)
+        c2 = pose_of(board, "C2", s1.url)
+        check("failed flip and move put back", r.returncode != 0 and "put back where they were" in r.stderr
+              and c2[:2] == ["113.8000", "101.0000"] and c2[3] == "F.Cu", r.stderr + str(c2))
+        r = run("move.py", board, "C2=114,103,0,B", env=S1)
+        c2 = pose_of(board, "C2", s1.url)
+        check("flip to B", r.returncode == 0 and c2 == ["114.0000", "103.0000", "0.0", "B.Cu"], r.stderr + str(c2))
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import ipc_board as g; "
+                "f = g.by_ref(g.load(sys.argv[2]))['C2']; "
+                "print(sorted({l for p in f.pads for l in p.layers}), f.courtyard is not None)")
+        rr = subprocess.run([venv_python(), "-s", "-c", code, os.path.join(SKILL, "scripts"), board],
+                            capture_output=True, text=True,
+                            env={**os.environ, **S1, "PYTHONDONTWRITEBYTECODE": "1"})
+        check("flipped part has its pads and courtyard on B", rr.stdout.strip() == "['B.Cu'] True",
+              rr.stdout + rr.stderr)
+        r = run("move.py", board, "C2=113.8,101,0,F", env=S1)
+        c2 = pose_of(board, "C2", s1.url)
+        check("flip back to F", r.returncode == 0 and c2 == ["113.8000", "101.0000", "0.0", "F.Cu"], r.stderr + str(c2))
+
         # a position KiCad cannot take is dropped, not half applied
         r = run("move.py", board, "C1=104.5,98.5,90", "C2=5000000,0,0", "--save", env=S1)
         check("out-of-range move refused", r.returncode != 0, r.stderr + r.stdout)
@@ -299,6 +321,29 @@ def main():
         check("local_search needs only track and clearance", r.returncode == 0, r.stderr)
         sb.stop()
         servers.remove(sb)
+
+        # a symbolic link inside the project to a board elsewhere is not the project's board
+        link = os.path.join(proj, "linked.kicad_pcb")
+        os.symlink(bare, link)
+        sb = Server(cli, bare, os.path.join(tmp, "sb"))
+        servers.append(sb)
+        r = run("pin_sides.py", link, "U1", env={"KICAD_API_SOCKET": sb.url})
+        check("symbolic link into the project refused", r.returncode != 0 and "is not the project's board" in r.stderr,
+              r.stderr)
+        sb.stop()
+        servers.remove(sb)
+
+        # a duplicated reference is refused, and does not break other moves
+        dupb = fixture(os.path.join(tmp, "dup"), "dup", "--dup")
+        sd = Server(cli, dupb, os.path.join(tmp, "sd"))
+        servers.append(sd)
+        SD = {"KICAD_API_SOCKET": sd.url}
+        r = run("move.py", dupb, "R1=104,104.2,0", env=SD)
+        check("duplicated reference refused", r.returncode != 0 and "more than one footprint" in r.stderr, r.stderr)
+        r = run("move.py", dupb, "C1=104.5,98.5,90", env=SD)
+        check("move on a board with a duplicated reference", r.returncode == 0, r.stderr)
+        sd.stop()
+        servers.remove(sd)
 
         sw = Server(cli, wide, os.path.join(tmp, "sw"))
         servers.append(sw)

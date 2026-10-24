@@ -9,20 +9,24 @@ y down, as KiCad shows them). F or B puts the part on that side. Without
 the server, so you can try a move and check it before saving. kicad-cli DRC
 reads the file, so save before running it.
 
-Every argument is checked before KiCad is asked anything, and a part may
-appear once per call. KiCad's answer for each part must match the request,
-or the commit is dropped and nothing changes. After the commit the footprint
-count, the net of every fixed copper shape and each moved part's position
-are read back; if any differ, the parts are put back where they were in a
-second commit and nothing is saved. The script exits non-zero whenever the
-board was not changed as asked.
+Every argument is checked before KiCad is asked anything, a part may appear
+once per call, and its reference must be unique on the board. A side change
+is KiCad's own flip (pads, courtyard and graphics mirrored), committed
+first; then the poses are set in one commit. KiCad's answer for each part
+must match the request, or that commit is dropped. After it the footprint
+count, the net of every fixed copper shape, each moved part's pose and the
+side of its SMD pads are read back. If anything differs, the parts are put
+back (flipped back, old poses), the board is read back again, and nothing is
+saved. The script exits non-zero whenever the board was not changed as
+asked, and says whether putting the parts back worked.
 """
 import argparse
 import math
 import os
 import sys
 
-from kipy.proto.board.board_types_pb2 import BoardLayer, FootprintInstance
+from kipy.proto.board.board_commands_pb2 import BoardFlipDirection, FlipItems, FlipItemsResponse
+from kipy.proto.board.board_types_pb2 import BoardLayer, FootprintInstance, PadType
 from kipy.proto.common.commands.editor_commands_pb2 import ItemStatusCode, UpdateItems, UpdateItemsResponse
 from kipy.util import pack_any
 
@@ -96,6 +100,73 @@ def update(b, items, message):
     return None
 
 
+def flip(b, ids, message):
+    """One commit flipping these footprints to the other side, mirrored as
+    KiCad's own flip does. Returns None when every one flipped, else the
+    reason, after dropping the commit."""
+    if not ids:
+        return None
+    c = b.begin_commit()
+    try:
+        cmd = FlipItems()
+        cmd.header.document.CopyFrom(b._doc)
+        cmd.direction = BoardFlipDirection.BFD_LEFT_RIGHT
+        for i in ids:
+            cmd.items.add().value = i
+        r = b._kicad.send(cmd, FlipItemsResponse)
+        bad = [f"{i[:8]}: {ItemStatusCode.Name(got.status.code)} {got.status.error_message}"
+               for i, got in zip(ids, r.flipped_items) if got.status.code != ItemStatusCode.ISC_OK]
+        if len(r.flipped_items) != len(ids):
+            bad.append(f"KiCad answered {len(r.flipped_items)} items for {len(ids)}")
+    except BaseException:
+        b.drop_commit(c)
+        raise
+    if bad:
+        b.drop_commit(c)
+        return "; ".join(bad)
+    b.push_commit(c, message)
+    return None
+
+
+def side_of(f):
+    return BoardLayer.BL_B_Cu if f.layer == BoardLayer.BL_B_Cu else BoardLayer.BL_F_Cu
+
+
+def wrong(b, wants, refs):
+    """What reads back differently from the poses wanted: position,
+    orientation, side, and SMD pads that are not on the part's side."""
+    by_id = {f.id.value: f for f in b.get_footprints()}
+    out = []
+    for want, ref in zip(wants, refs):
+        got = by_id.get(want.id.value)
+        if got is None:
+            out.append(f"{ref} is gone")
+            continue
+        if not same(want, pose(ref, got.id.value, got.position.x, got.position.y, got.orientation.degrees,
+                               got.layer)):
+            out.append(f"{ref} reads back at {got.position.x / 1e6:.4f},{got.position.y / 1e6:.4f},"
+                       f"{got.orientation.degrees:.1f} {'B' if got.layer == BoardLayer.BL_B_Cu else 'F'}")
+            continue
+        for pd in got.definition.pads:
+            lays = set(pd.padstack.layers)
+            if pd.pad_type == PadType.PT_SMD and lays and side_of(got) not in lays:
+                out.append(f"{ref} pad {pd.number} is not on the part's side")
+                break
+    return out
+
+
+def restore(b, flips, before, refs, count):
+    """Put the parts back (flip back, then the old poses) and say whether
+    the board reads back as it was."""
+    undo = flip(b, flips, "undo flip") or update(b, before, "undo move " + " ".join(refs))
+    left = [undo] if undo else wrong(b, before, refs)
+    if len(b.get_footprints()) != count:
+        left.append("the footprint count still differs")
+    if not left:
+        return "the parts were put back where they were"
+    return "putting the parts back did not work (" + "; ".join(left) + "): inspect the board"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("board")
@@ -105,42 +176,54 @@ def main():
     moves = parse(a.moves)
     loaded = ipc_board.load(a.board)
     b = loaded["board"]
-    fps = {f.reference_field.text.value: f for f in b.get_footprints()}
+    all_fps = b.get_footprints()
+    count = len(all_fps)
+    fps, seen = {}, {}
+    for f in all_fps:
+        r = f.reference_field.text.value
+        seen[r] = seen.get(r, 0) + 1
+        fps[r] = f
     missing = [r for r, *_ in moves if r not in fps]
     if missing:
         sys.exit("no footprint " + " ".join(missing) + f" on {a.board}; nothing changed")
-    count = len(fps)
+    shared = [r for r, *_ in moves if seen[r] > 1]
+    if shared:
+        sys.exit("more than one footprint has the reference " + " ".join(shared) + "; give each a unique "
+                 "reference first; nothing changed")
     nets_before = {sh.id.value: sh.net.name for sh in b.get_shapes()}
-    before, changed = [], []
+    refs = [m[0] for m in moves]
+    before, changed, flips = [], [], []
     for ref, x, y, rot, side in moves:
         f = fps[ref]
         before.append(pose(ref, f.id.value, f.position.x, f.position.y, f.orientation.degrees, f.layer))
+        layer = side_of(f) if side is None else (BoardLayer.BL_B_Cu if side == "B" else BoardLayer.BL_F_Cu)
+        if layer != side_of(f):
+            flips.append(f.id.value)
         # send only id, position, orientation and layer: a full footprint makes KiCad
         # rebuild its graphics, which leaves rounding in the stored courtyards
-        layer = f.layer if side is None else (BoardLayer.BL_B_Cu if side == "B" else BoardLayer.BL_F_Cu)
         changed.append(pose(ref, f.id.value, round(x * 1e6), round(y * 1e6), rot, layer))
-    refs = [m[0] for m in moves]
-    why = update(b, changed, "move " + " ".join(refs))
+    # A side change is KiCad's flip (pads, courtyard and graphics mirrored to
+    # the other side), committed on its own; then every pose is set.
+    why = flip(b, flips, "flip " + " ".join(r for r, c in zip(refs, changed) if c.id.value in flips))
     if why:
+        sys.exit(f"KiCad did not flip the parts ({why}); the commit was dropped, nothing changed")
+    why = update(b, changed, "move " + " ".join(refs))
+    if why and not flips:
         sys.exit(f"KiCad did not apply the move as asked ({why}); the commit was dropped, nothing changed")
-    now = b.get_footprints()
+    if why:
+        sys.exit(f"KiCad did not apply the move as asked ({why}); the commit was dropped; "
+                 + restore(b, flips, before, refs, count) + "; not saved")
     problems = []
-    if len(now) != count:
-        problems.append(f"footprint count changed from {count} to {len(now)}")
+    now = len(b.get_footprints())
+    if now != count:
+        problems.append(f"footprint count changed from {count} to {now}")
     moved_nets = [(k, v, sh.net.name) for sh in b.get_shapes()
                   for k, v in [(sh.id.value, nets_before.get(sh.id.value))] if v != sh.net.name]
     if moved_nets:
         problems.append("fixed copper changed net: " + ", ".join(f"{k[:8]} {v} -> {n}" for k, v, n in moved_nets))
-    by_id = {f.id.value: f for f in now}
-    for want, ref in zip(changed, refs):
-        got = by_id.get(want.id.value)
-        if got is None or not same(want, pose(ref, got.id.value, got.position.x, got.position.y,
-                                              got.orientation.degrees, got.layer)):
-            problems.append(f"{ref} did not read back where it was put")
+    problems += wrong(b, changed, refs)
     if problems:
-        undo = update(b, before, "undo move " + " ".join(refs))
-        state = "the parts were put back" if undo is None else f"putting the parts back failed too ({undo})"
-        sys.exit("; ".join(problems) + f"; {state}; not saved")
+        sys.exit("; ".join(problems) + "; " + restore(b, flips, before, refs, count) + "; not saved")
     for f in b.get_footprints():
         r = f.reference_field.text.value
         if r in refs:

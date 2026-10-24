@@ -67,7 +67,8 @@ def two_pin(n1, n2):
 
 
 def board(rules):
-    fps = [
+    dup = [fp("R1", "10k", 116.0, 105.0, 0, two_pin("SIG2", "VDD"), crt(-0.91, -0.46, 0.91, 0.46))] if rules.dup else []
+    fps = dup + [
         fp("U1", "QFN16", 110, 100, 0, qfn(), crt(-2.6, -2.6, 2.6, 2.6)),
         fp("C1", "100n", 106.2, 99.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
         fp("C2", "100n", 113.8, 101.0, 0, two_pin("VDD", "GND"), crt(-0.91, -0.46, 0.91, 0.46)),
@@ -121,6 +122,7 @@ def main():
     ap.add_argument("--via", type=float, default=0.5)
     ap.add_argument("--edge", type=float, default=0.2)
     ap.add_argument("--no-project", action="store_true")
+    ap.add_argument("--dup", action="store_true", help="a second footprint with the reference R1")
     a = ap.parse_args()
     os.makedirs(a.dir, exist_ok=True)
     with open(os.path.join(a.dir, a.name + ".kicad_pcb"), "w") as f:

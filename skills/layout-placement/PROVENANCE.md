@@ -54,18 +54,26 @@ Scripts:
   part that is not on the board; `route_check.py` states its scope and what
   an escape failing in both orders means.
 - `ipc_board.py`: the board must be the one the nearest `.backplane.json`
-  names (`LAYOUT_PLACEMENT_ALTERNATE=1` allows another when the user asked
-  for one); exactly one server may have it open; a `KICAD_API_SOCKET`
+  names, checked from the path as given and from the file it resolves to
+  (`LAYOUT_PLACEMENT_ALTERNATE=1` allows another when the user asked for
+  one); exactly one server may have it open, and the connection the script
+  then uses is checked again; a `KICAD_API_SOCKET`
   server with another board is refused; Backplane's sockets are looked for
   under `$XDG_RUNTIME_DIR/backplane/kicad` and `<Backplane home>/run/kicad`
   (macOS) as well as `/run/user/<uid>/backplane/kicad`.
-- `move.py`: arguments checked before any request; KiCad's answer for each
-  part compared with the request, and the commit dropped when they differ;
+- `move.py`: arguments checked before any request, and a reference that
+  more than one footprint has is refused; `,B`/`,F` is KiCad's own flip
+  (FlipItems, pads and courtyard mirrored to the other side) in its own
+  commit, where v18 only changed the footprint's layer field and left its
+  pads and courtyard on the old side; KiCad's answer for each part compared
+  with the request, and the commit dropped when they differ (in the tests
+  KiCad clamped an out-of-range position, which v18 would have committed);
   after the commit, a failed integrity check (footprint count, fixed copper
-  nets, moved parts read back) puts the parts back in a second commit
-  instead of leaving them moved; non-zero exit whenever the board was not
-  changed as asked; says whether it saved. v18 pushed the commit and then
-  only told the agent to undo it.
+  nets, poses and pad sides read back) flips and moves the parts back and
+  reads the board again, instead of leaving them moved; non-zero exit
+  whenever the board was not changed as asked; says whether it saved. v18
+  pushed the commit and then only told the agent to undo it, and its count
+  check failed on any board with a repeated reference.
 - `run.sh` (new), `requirements.in`, `requirements.txt` (new): a private
   Python environment with exact versions and hashes, the versions the lab
   tested (kicad-python 0.8.0, shapely 2.2.0, numpy 2.5.4, protobuf 5.29.6;

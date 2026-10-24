@@ -7,7 +7,7 @@
 # Nothing is installed anywhere else. LAYOUT_PLACEMENT_PYTHON names a Python
 # that already has the requirements, and skips the environment.
 set -eu
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 case ${1:-} in
   ipc_board.py|pin_sides.py|route_check.py|move.py|group_search.py|placement_audit.py|local_search.py|grid_router.py) ;;
   *) echo "usage: run.sh SCRIPT.py ARGS... (SCRIPT one of: pin_sides route_check move group_search placement_audit local_search)" >&2; exit 2;;
@@ -20,6 +20,10 @@ fi
 req=$here/../requirements.txt
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-16; }
 env=${XDG_CACHE_HOME:-$HOME/.cache}/kistack/layout-placement/$(sha "$req")
+# an environment whose interpreter has gone (a Python uninstalled) is made again
+if [ -f "$env/.ready" ] && ! "$env/bin/python" -s -c '' 2>/dev/null; then
+  rm -rf "$env"
+fi
 if [ ! -f "$env/.ready" ]; then
   mkdir -p "$(dirname "$env")"
   tmp=$(mktemp -d "$env.new.XXXXXX")
@@ -35,9 +39,17 @@ if [ ! -f "$env/.ready" ]; then
   fi
   "$tmp/bin/python" -s -c 'import kipy, shapely, numpy' >&2
   : > "$tmp/.ready"
-  # only bin/python is used, and it finds its environment after the rename;
-  # another run that got there first wins
-  if [ ! -e "$env" ] && mv "$tmp" "$env"; then trap - EXIT; fi
+  # only bin/python is used, and it finds its environment after the rename.
+  # rename(2) fails on a folder that is there and not empty, so a run that
+  # got there first wins and this one's copy is removed
+  [ -d "$env" ] && [ ! -f "$env/.ready" ] && rm -rf "$env"
+  "$tmp/bin/python" -s -c 'import os, sys
+try:
+    os.rename(sys.argv[1], sys.argv[2])
+except OSError:
+    pass' "$tmp" "$env"
+  rm -rf "$tmp"
+  trap - EXIT
   [ -f "$env/.ready" ] || { echo "run.sh: could not set up $env" >&2; exit 1; }
 fi
 exec "$env/bin/python" -s "$here/$script" "$@"

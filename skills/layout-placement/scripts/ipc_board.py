@@ -94,15 +94,22 @@ def _open_board(k):
     return os.path.realpath(os.path.join(d.project.path, d.board_filename))
 
 
-def _canonical(target):
+def _canonical(board_path):
     """Refuse a board that is not the project's configured one.
 
     The nearest .backplane.json above the board names the project's board
     (its "pcb", else the board beside its "project"). A different board is
     refused unless LAYOUT_PLACEMENT_ALTERNATE=1 says the user asked for an
-    alternate or experimental copy. Without a .backplane.json there is
-    nothing to check against."""
-    d = os.path.dirname(target)
+    alternate or experimental copy. Both the path as given and the file it
+    resolves to are checked, so a symbolic link does not hide the project.
+    Without a .backplane.json there is nothing to check against."""
+    target = os.path.realpath(board_path)
+    for start in dict.fromkeys((os.path.abspath(board_path), target)):
+        _canonical_from(start, target)
+
+
+def _canonical_from(start, target):
+    d = os.path.dirname(start)
     while True:
         cfg = os.path.join(d, ".backplane.json")
         if os.path.isfile(cfg):
@@ -151,7 +158,7 @@ def find_socket(board_path):
     if not board_path:
         raise SystemExit("name the board (.kicad_pcb); the scripts never pick one")
     target = os.path.realpath(board_path)
-    _canonical(target)
+    _canonical(board_path)
     env = os.environ.get("KICAD_API_SOCKET")
     if env:
         try:
@@ -182,12 +189,16 @@ def find_socket(board_path):
 
 
 def load(board_path, socket=None):
-    k = KiCad(socket_path=socket or find_socket(board_path), client_name="works.backplane.placement", timeout_ms=30000)
     if socket:
-        _canonical(os.path.realpath(board_path))
-    if socket and _open_board(k) != os.path.realpath(board_path):
-        raise SystemExit(f"{socket} does not have {board_path} open: refusing")
+        _canonical(board_path)
+    sock = socket or find_socket(board_path)
+    k = KiCad(socket_path=sock, client_name="works.backplane.placement", timeout_ms=30000)
+    # the board this connection works on, checked again here: the server
+    # may have opened another since find_socket looked
     board = k.get_board()
+    d = board.document
+    if os.path.realpath(os.path.join(d.project.path, d.board_filename)) != os.path.realpath(board_path):
+        raise SystemExit(f"{sock} does not have {board_path} open now: refusing")
     fps_raw = board.get_footprints()
     pads_raw = board.get_pads()
     front = board.get_pad_shapes_as_polygons(pads_raw, BoardLayer.BL_F_Cu)

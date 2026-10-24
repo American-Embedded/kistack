@@ -278,9 +278,11 @@ installed, else with python3 and pip. It installs nothing elsewhere.
 - `scripts/move.py <board> REF=x,y,rot[,F|B] ... [--save]` moves parts as one
   commit. Without `--save` the change lives in the server only, and the
   checks read the server, so you can try a move, check it and move again.
-- `move.py` checks every argument before it asks KiCad anything and takes
-  each part once per call. If KiCad does not place a part as asked, it drops
-  the commit. If the footprint count, the net of any fixed copper, or a
+- `move.py` checks every argument before it asks KiCad anything, takes
+  each part once per call, and refuses a reference that two footprints
+  share. `,B` or `,F` flips the part with KiCad's own flip, so its pads and
+  courtyard go to that side. If KiCad does not place a part as asked, it
+  drops the commit. If the footprint count, the net of any fixed copper, or a
   moved part's position reads back wrong after the commit, it puts the parts
   back and does not save. It exits non-zero whenever the board was not
   changed as asked.
