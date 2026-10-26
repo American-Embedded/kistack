@@ -18,6 +18,10 @@ manufacturing sign-off. Its scripts check placement geometry under simple
 rules. Where their results and the datasheet or the vendor's reference
 layout disagree, follow the datasheet and the reference.
 
+## Save progress to the configured board
+
+Resolve the canonical path from the project root's `.backplane.json` (`project`, or explicit `pcb`). After each meaningful group, save even unfinished placement to that exact file with `SaveDocument` or `--save`; do not leave progress only in the server or a final copy. Read back the saved path and show it with `viewer_show`, then verify the viewer and history refer to that saved file; report any mismatch. Preserve its `<native-filename>.backplane.json` companion. Keep backups/intermediates separate; validate any staging output and promote it back with a backup. One writer owns the canonical board; alternate files require an explicit experiment request.
+
 ## Why parts go where they go
 
 Work from these reasons. The rules in the later sections follow from them.

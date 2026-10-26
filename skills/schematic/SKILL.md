@@ -17,6 +17,10 @@ These are instructions on how to wire up a schematic after initial IC selection.
 
 This skill is not for selecting specific parts/part numbers, and you shouldn't do so if you weren't asked to.
 
+### Save work in place
+
+Resolve the configured schematic from the project root's `.backplane.json` (`project`, or explicit `schematic`); preserve that root and its referenced sheet paths. Save meaningful milestones, including unfinished work, with IPC `SaveDocument` to the exact edited document. Read back the saved file and show the canonical schematic with `viewer_show` then verify the viewer and history refer to that saved file; report any mismatch. Preserve `<native-filename>.backplane.json` companions and existing history. Keep backups/intermediates separate; validate staging outputs and promote them back with a backup before continuing. Never deliver progress only as a final copy or silently rename active sheets. Coordinate one writer per document; label explicitly requested alternate experiments.
+
 ### How to draw the schematic
 
 You can move anything around and label things. Generally, do most wiring with labels instead of drawing lines, with an important exception listed further below. Ensure all labels have 50mil text size.
